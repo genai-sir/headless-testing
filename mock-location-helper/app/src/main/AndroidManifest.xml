@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.headless.mockloc">
+
+    <!--
+      No manifest permission needed for mock location since API 23.
+      The helper is enabled at runtime via:
+        cmd appops set com.headless.mockloc android:mock_location allow
+      (root required — both Redroid and a rooted AVD have it.)
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <application
+        android:label="MockLocationHelper"
+        android:allowBackup="false">
+        <receiver
+            android:name=".LocationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.headless.mockloc.SET_LOCATION" />
+                <action android:name="com.headless.mockloc.STOP" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

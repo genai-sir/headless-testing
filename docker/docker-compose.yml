@@ -1,0 +1,73 @@
+# Linux-host deployment: rooted Android 14 in a container + ws-scrcpy + dashboard.
+#
+# Host requirements:
+#   - Linux kernel with binder_linux + ashmem_linux modules
+#     (install redroid-modules DKMS, see github.com/remote-android/redroid-doc)
+#   - Docker engine + compose plugin
+#
+# After `docker compose up`:
+#   - redroid     adb-reachable at  redroid:5555  (also published to host:5555)
+#   - ws-scrcpy   http://<host>:8000
+#   - dashboard   http://<host>:3000
+
+services:
+  redroid:
+    image: redroid/redroid:14.0.0_64only-latest
+    container_name: headless-redroid
+    privileged: true
+    ports:
+      - "5555:5555"
+    # GPS, gpu config, redroid-fps tuning all passed as androidboot.* args.
+    command:
+      - androidboot.redroid_gpu_mode=guest
+      - androidboot.redroid_fps=60
+      - androidboot.redroid_height=1920
+      - androidboot.redroid_width=1080
+    volumes:
+      - redroid-data:/data
+    restart: unless-stopped
+    networks:
+      - hl
+
+  ws-scrcpy:
+    build:
+      context: ..
+      dockerfile: docker/ws-scrcpy.Dockerfile
+    container_name: headless-ws-scrcpy
+    depends_on:
+      - redroid
+    ports:
+      - "8000:8000"
+    environment:
+      WS_SCRCPY_HOSTNAME: 0.0.0.0
+      WS_SCRCPY_PORT: 8000
+    networks:
+      - hl
+    # ws-scrcpy needs adb to reach redroid:5555.
+    # Its entrypoint runs `adb connect redroid:5555` before npm start.
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    container_name: headless-backend
+    depends_on:
+      - redroid
+    ports:
+      - "3000:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      BACKEND_TYPE: redroid
+      ADB_SERIAL: redroid:5555
+      WS_SCRCPY_URL: http://localhost:8000
+    networks:
+      - hl
+    restart: unless-stopped
+
+volumes:
+  redroid-data:
+
+networks:
+  hl:

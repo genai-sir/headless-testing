@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>headless-android</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>headless-android</h1>
+      <div id="status-pill" class="pill">connecting…</div>
+    </header>
+
+    <main>
+      <section class="screen">
+        <div class="screen-header">
+          <span>Live screen</span>
+          <button id="open-viewer" class="ghost">open in new tab</button>
+        </div>
+        <iframe
+          id="viewer"
+          title="ws-scrcpy"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          src="about:blank"
+        ></iframe>
+      </section>
+
+      <aside class="panels">
+        <details open>
+          <summary>Device</summary>
+          <div id="device-info" class="kv">loading…</div>
+          <div class="row">
+            <button id="btn-refresh">refresh</button>
+            <button id="btn-root">adb root</button>
+          </div>
+        </details>
+
+        <details open>
+          <summary>Sideload APK</summary>
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="apk-file" accept=".apk" hidden />
+            <span>drop an .apk here or click to choose</span>
+          </label>
+          <pre id="apk-output" class="output"></pre>
+        </details>
+
+        <details open>
+          <summary>Mock GPS</summary>
+          <div class="row">
+            <input id="lat" type="number" step="any" placeholder="lat (-90..90)" />
+            <input id="lng" type="number" step="any" placeholder="lng (-180..180)" />
+          </div>
+          <div class="row presets">
+            <button data-lat="37.7749" data-lng="-122.4194">SF</button>
+            <button data-lat="40.7128" data-lng="-74.0060">NYC</button>
+            <button data-lat="51.5074" data-lng="-0.1278">London</button>
+            <button data-lat="35.6762" data-lng="139.6503">Tokyo</button>
+            <button data-lat="12.9716" data-lng="77.5946">Bengaluru</button>
+            <button data-lat="-33.8688" data-lng="151.2093">Sydney</button>
+          </div>
+          <div class="row">
+            <button id="btn-set-loc" class="primary">set location</button>
+          </div>
+          <pre id="loc-output" class="output"></pre>
+        </details>
+
+        <details>
+          <summary>Root shell</summary>
+          <form id="shell-form">
+            <input id="shell-cmd" placeholder="e.g.  pm list packages -3" autocomplete="off" />
+            <button class="primary">run</button>
+          </form>
+          <pre id="shell-output" class="output"></pre>
+        </details>
+
+        <details>
+          <summary>Logcat</summary>
+          <div class="row">
+            <input id="logcat-tag" placeholder="tag filter (optional)" />
+            <button id="btn-logcat-toggle">start</button>
+            <button id="btn-logcat-clear" class="ghost">clear</button>
+          </div>
+          <pre id="logcat-output" class="output logcat"></pre>
+        </details>
+      </aside>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
