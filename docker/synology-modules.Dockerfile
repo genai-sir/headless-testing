@@ -1,9 +1,7 @@
-# Builds binder_linux.ko and ashmem_linux.ko for Synology DSM (geminilake).
+# Builds binder_linux.ko (multi-device) and ashmem_linux.ko for Synology DSM.
 #
-# Kernel 4.4.302 has binder/ashmem source but they're built-in only. We:
-# 1. Patch source for module compilation (module_init, MODULE_LICENSE)
-# 2. Add deps.c shims for unexported symbols (via kallsyms_lookup_name)
-# 3. Build as out-of-tree modules
+# Uses redroid-modules binder (multi-device support) + kernel-tree ashmem.
+# Both include deps.c shims for unexported Synology kernel symbols.
 
 FROM debian:bookworm-slim
 
@@ -13,7 +11,7 @@ ARG PLATFORM=geminilake
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget xz-utils ca-certificates bc kmod build-essential \
+    wget xz-utils ca-certificates bc kmod build-essential git \
     libncurses-dev libssl-dev libelf-dev bison flex cpio \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,6 +28,9 @@ RUN wget -q -O linux-4.4.x.txz \
     && tar -xf linux-4.4.x.txz \
     && rm linux-4.4.x.txz
 
+# Clone redroid-modules for multi-device binder.
+RUN git clone --depth 1 https://github.com/remote-android/redroid-modules.git /build/redroid-modules
+
 WORKDIR /build/linux-4.4.x
 
 RUN cp synoconfigs/${PLATFORM} .config && \
@@ -39,11 +40,9 @@ RUN cp synoconfigs/${PLATFORM} .config && \
     make prepare && \
     make scripts
 
-# ── Copy deps.c shim files from build context ───────────────────────────────
+# ── Build ashmem from kernel tree (works on 4.4.x) ──────────────────────────
 COPY ashmem_deps.c /build/ashmem_deps.c
-COPY binder_deps.c /build/binder_deps.c
 
-# ── Prepare ashmem out-of-tree build ─────────────────────────────────────────
 RUN mkdir -p /build/ashmem/uapi && \
     cp drivers/staging/android/ashmem.c /build/ashmem/ && \
     cp drivers/staging/android/ashmem.h /build/ashmem/ 2>/dev/null || true && \
@@ -57,35 +56,26 @@ RUN sed -i '1i #include <linux/module.h>' /build/ashmem/ashmem.c && \
 RUN printf 'ccflags-y += -I$(src) -I$(KDIR)/drivers/staging/android\nobj-m := ashmem_linux.o\nashmem_linux-y := ashmem.o deps.o\n' \
     > /build/ashmem/Makefile
 
-# ── Prepare binder out-of-tree build ─────────────────────────────────────────
-RUN BINDER_DIR=$(dirname $(find drivers/ -path "*/android/binder.c" | head -1)) && \
-    mkdir -p /build/binder && \
-    cp "$BINDER_DIR"/binder.c /build/binder/ && \
-    find "$BINDER_DIR" -name "*.h" -exec cp {} /build/binder/ \; 2>/dev/null || true && \
-    cp /build/binder_deps.c /build/binder/deps.c
+RUN make -C /build/linux-4.4.x M=/build/ashmem EXTRA_CFLAGS=-Wno-error modules && \
+    ls -la /build/ashmem/ashmem_linux.ko && echo "ashmem OK"
 
-RUN sed -i '1i #include <linux/module.h>' /build/binder/binder.c && \
-    sed -i 's/device_initcall(binder_init);/module_init(binder_init);\nMODULE_LICENSE("GPL");/' \
-        /build/binder/binder.c
+# ── Build binder from redroid-modules (multi-device support) ─────────────────
+# Copy redroid-modules binder to a writable build directory.
+RUN cp -r /build/redroid-modules/binder /build/binder_build
 
-RUN printf 'ccflags-y += -I$(src) -DCONFIG_ANDROID_BINDER_DEVICES=\\\"binder,hwbinder,vndbinder\\\"\nobj-m := binder_linux.o\nbinder_linux-y := binder.o deps.o\n' \
-    > /build/binder/Makefile
-
-# ── Build ────────────────────────────────────────────────────────────────────
-RUN echo "=== Building ashmem ===" && \
-    make -C /build/linux-4.4.x M=/build/ashmem EXTRA_CFLAGS=-Wno-error modules && \
-    ls -la /build/ashmem/ashmem_linux.ko && \
-    echo "ashmem OK"
-
-RUN echo "=== Building binder ===" && \
-    make -C /build/linux-4.4.x M=/build/binder EXTRA_CFLAGS=-Wno-error modules && \
-    ls -la /build/binder/binder_linux.ko && \
-    echo "binder OK"
+# Try building. Capture errors to diagnose.
+RUN make -C /build/linux-4.4.x M=/build/binder_build \
+    EXTRA_CFLAGS="-Wno-error -I/build/binder_build" modules 2>&1 \
+    && echo "binder OK" \
+    || { echo "=== BINDER BUILD FAILED — showing errors ==="; \
+         make -C /build/linux-4.4.x M=/build/binder_build \
+           EXTRA_CFLAGS="-Wno-error -I/build/binder_build" modules 2>&1 | grep -E "error:|undefined|fatal" | head -30; \
+         false; }
 
 # ── Collect ──────────────────────────────────────────────────────────────────
 RUN mkdir -p /out && \
     cp /build/ashmem/ashmem_linux.ko /out/ && \
-    cp /build/binder/binder_linux.ko /out/ && \
+    cp /build/binder_build/binder_linux.ko /out/ && \
     echo "=== Final modules ===" && \
     ls -la /out/ && \
     modinfo /out/binder_linux.ko && echo "---" && \
