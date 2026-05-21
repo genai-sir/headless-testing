@@ -206,8 +206,112 @@ async function refreshStealth() {
       : "bad";
 }
 
+// ---------- scope ----------
+const scopeList = $("#scope-list");
+const scopeFilter = $("#scope-filter");
+const scopeSystem = $("#scope-system");
+const scopeApply = $("#scope-apply");
+const scopePending = $("#scope-pending");
+const scopeSummary = $("#scope-summary");
+
+let scopeDirty = false;
+let scopeRefreshTimer = null;
+
+function setScopeDirty(dirty) {
+  scopeDirty = dirty;
+  scopeApply.disabled = !dirty;
+  scopePending.textContent = dirty ? "pending changes — reboot to apply" : "";
+}
+
+async function refreshScope() {
+  let data;
+  try {
+    const sys = scopeSystem.checked ? "?system=true" : "";
+    data = await api("/api/scope" + sys);
+  } catch {
+    return;
+  }
+  if (!data.ok) {
+    scopeList.innerHTML =
+      `<li class="empty">${data.error || "scope unavailable"}</li>`;
+    scopeSummary.textContent = "";
+    return;
+  }
+  scopeSummary.textContent = `${data.counts.scoped} of ${data.counts.installed} apps`;
+  scopeSummary.className = data.counts.scoped > 0 ? "ok" : "dim";
+
+  const filter = scopeFilter.value.toLowerCase();
+  scopeList.innerHTML = "";
+  for (const { pkg, scoped, installed } of data.apps) {
+    const li = document.createElement("li");
+    if (!installed) li.classList.add("uninstalled");
+    if (filter && !pkg.toLowerCase().includes(filter)) li.classList.add("hidden");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = scoped;
+    cb.dataset.pkg = pkg;
+    cb.addEventListener("change", onScopeToggle);
+    const label = document.createElement("label");
+    label.appendChild(cb);
+    const span = document.createElement("span");
+    span.textContent = pkg;
+    label.appendChild(span);
+    li.appendChild(label);
+    scopeList.appendChild(li);
+  }
+  if (data.apps.length === 0) {
+    scopeList.innerHTML = `<li class="empty">no apps</li>`;
+  }
+}
+
+async function onScopeToggle(e) {
+  const pkg = e.target.dataset.pkg;
+  const url = e.target.checked ? "/api/scope/add" : "/api/scope/remove";
+  e.target.disabled = true;
+  try {
+    await api(url, {
+      method: "POST",
+      body: JSON.stringify({ pkg }),
+    });
+    setScopeDirty(true);
+  } finally {
+    e.target.disabled = false;
+  }
+}
+
+scopeFilter.addEventListener("input", () => refreshScope());
+scopeSystem.addEventListener("change", () => refreshScope());
+scopeApply.addEventListener("click", async () => {
+  if (!confirm("Reboot the device to apply scope changes?")) return;
+  scopeApply.disabled = true;
+  scopeApply.textContent = "rebooting…";
+  scopePending.textContent = "waiting for device to come back";
+  try {
+    await api("/api/scope/apply", { method: "POST" });
+  } catch {}
+  // Poll /api/device until bootCompleted.
+  const start = Date.now();
+  const poll = setInterval(async () => {
+    const dev = await api("/api/device").catch(() => null);
+    if (dev?.bootCompleted) {
+      clearInterval(poll);
+      scopeApply.textContent = "apply (reboot)";
+      setScopeDirty(false);
+      refreshScope();
+      refreshDevice();
+      refreshStealth();
+    } else if (Date.now() - start > 120000) {
+      clearInterval(poll);
+      scopeApply.textContent = "apply (reboot)";
+      scopePending.textContent = "device didn't come back in 2 min — check manually";
+    }
+  }, 2000);
+});
+
 // ---------- boot ----------
 loadConfig().then(refreshDevice);
 setInterval(refreshDevice, 5000);
 refreshStealth();
 setInterval(refreshStealth, 8000);
+refreshScope();
+scopeRefreshTimer = setInterval(refreshScope, 10000);
