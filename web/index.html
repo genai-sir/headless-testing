@@ -46,9 +46,25 @@
           </ul>
           <p class="hint">
             Missing layers? Run
-            <code>scripts/install-magisk-avd.sh</code> from your shell, then
-            open LSPosed manager on the device and enable scope on target apps.
+            <code>scripts/install-magisk-avd.sh</code> from your shell.
           </p>
+        </details>
+
+        <details open>
+          <summary>Scope <span id="scope-summary" class="dim"></span></summary>
+          <div class="row">
+            <input id="scope-filter" placeholder="filter packages…" />
+            <label class="check-inline">
+              <input id="scope-system" type="checkbox" /> system apps
+            </label>
+          </div>
+          <ul id="scope-list" class="applist">
+            <li class="empty">loading…</li>
+          </ul>
+          <div class="row scope-actions">
+            <span id="scope-pending" class="hint dim"></span>
+            <button id="scope-apply" class="primary" disabled>apply (reboot)</button>
+          </div>
         </details>
 
         <details open>
