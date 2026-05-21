@@ -5,6 +5,7 @@
 #include <linux/vmalloc.h>
 #include <linux/kallsyms.h>
 #include <linux/module.h>
+#include <linux/cred.h>
 #include <linux/security.h>
 
 typedef struct sighand_struct *(*__lock_task_sighand_ptr_t)(struct task_struct *, unsigned long *);
@@ -106,36 +107,36 @@ void __wake_up_pollfree(wait_queue_head_t *wq_head)
     __wake_up_pollfree_ptr(wq_head);
 }
 
-typedef int (*security_binder_set_context_mgr_ptr_t)(struct task_struct *);
+typedef int (*security_binder_set_context_mgr_ptr_t)(const struct cred *);
 static security_binder_set_context_mgr_ptr_t security_binder_set_context_mgr_ptr;
-int security_binder_set_context_mgr(struct task_struct *mgr)
+int security_binder_set_context_mgr(const struct cred *mgr)
 {
     if (!security_binder_set_context_mgr_ptr)
         security_binder_set_context_mgr_ptr = (security_binder_set_context_mgr_ptr_t)kallsyms_lookup_name("security_binder_set_context_mgr");
     return security_binder_set_context_mgr_ptr(mgr);
 }
 
-typedef int (*security_binder_transaction_ptr_t)(struct task_struct *, struct task_struct *);
+typedef int (*security_binder_transaction_ptr_t)(const struct cred *, const struct cred *);
 static security_binder_transaction_ptr_t security_binder_transaction_ptr;
-int security_binder_transaction(struct task_struct *from, struct task_struct *to)
+int security_binder_transaction(const struct cred *from, const struct cred *to)
 {
     if (!security_binder_transaction_ptr)
         security_binder_transaction_ptr = (security_binder_transaction_ptr_t)kallsyms_lookup_name("security_binder_transaction");
     return security_binder_transaction_ptr(from, to);
 }
 
-typedef int (*security_binder_transfer_binder_ptr_t)(struct task_struct *, struct task_struct *);
+typedef int (*security_binder_transfer_binder_ptr_t)(const struct cred *, const struct cred *);
 static security_binder_transfer_binder_ptr_t security_binder_transfer_binder_ptr;
-int security_binder_transfer_binder(struct task_struct *from, struct task_struct *to)
+int security_binder_transfer_binder(const struct cred *from, const struct cred *to)
 {
     if (!security_binder_transfer_binder_ptr)
         security_binder_transfer_binder_ptr = (security_binder_transfer_binder_ptr_t)kallsyms_lookup_name("security_binder_transfer_binder");
     return security_binder_transfer_binder_ptr(from, to);
 }
 
-typedef int (*security_binder_transfer_file_ptr_t)(struct task_struct *, struct task_struct *, struct file *);
+typedef int (*security_binder_transfer_file_ptr_t)(const struct cred *, const struct cred *, struct file *);
 static security_binder_transfer_file_ptr_t security_binder_transfer_file_ptr;
-int security_binder_transfer_file(struct task_struct *from, struct task_struct *to, struct file *file)
+int security_binder_transfer_file(const struct cred *from, const struct cred *to, struct file *file)
 {
     if (!security_binder_transfer_file_ptr)
         security_binder_transfer_file_ptr = (security_binder_transfer_file_ptr_t)kallsyms_lookup_name("security_binder_transfer_file");
