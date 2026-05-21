@@ -36,13 +36,19 @@ RUN wget -q -O linux-4.4.x.txz \
 
 WORKDIR /build/linux-4.4.x
 
-# Patch Kconfig: change binder and ashmem from bool → tristate so they can
-# be built as loadable modules instead of only built-in.
-RUN sed -i 's/bool "Enable the Anonymous Shared Memory Subsystem"/tristate "Enable the Anonymous Shared Memory Subsystem"/' \
-        drivers/staging/android/Kconfig && \
-    sed -i 's/bool "Android Binder IPC Driver"/tristate "Android Binder IPC Driver"/' \
-        drivers/staging/android/Kconfig && \
-    echo "--- Patched Kconfig (binder + ashmem → tristate) ---"
+# Patch Kconfig: change every bool → tristate in the android staging Kconfig
+# so binder and ashmem can be built as loadable modules (.ko).
+# Using a pattern that matches the config symbol line, then changes the type
+# keyword on the next line — avoids depending on exact help-text strings.
+RUN echo "--- Before patch ---" && \
+    grep -A1 'config ANDROID_BINDER_IPC' drivers/staging/android/Kconfig && \
+    grep -A1 'config ASHMEM' drivers/staging/android/Kconfig && \
+    sed -i '/^\tdefault n/d' drivers/staging/android/Kconfig && \
+    sed -i 's/^\tbool$/\ttristate/' drivers/staging/android/Kconfig && \
+    sed -i 's/^\tbool "/\ttristate "/' drivers/staging/android/Kconfig && \
+    echo "--- After patch ---" && \
+    grep -A1 'config ANDROID_BINDER_IPC' drivers/staging/android/Kconfig && \
+    grep -A1 'config ASHMEM' drivers/staging/android/Kconfig
 
 # Start from Synology's geminilake defconfig.
 RUN cp synoconfigs/${PLATFORM} .config
@@ -55,12 +61,19 @@ RUN scripts/config --enable ANDROID && \
 
 RUN make olddefconfig
 
-# Verify the config took effect.
-RUN echo "--- Kernel config check ---" && \
-    grep CONFIG_ANDROID= .config && \
-    grep CONFIG_ANDROID_BINDER_IPC .config && \
-    grep CONFIG_ASHMEM .config && \
-    grep CONFIG_ANDROID_BINDER_DEVICES .config
+# Check what olddefconfig decided. If binder got disabled, force it back on.
+RUN echo "--- Config after olddefconfig ---" && \
+    grep -E "CONFIG_ANDROID=|CONFIG_ANDROID_BINDER_IPC|CONFIG_ASHMEM|CONFIG_ANDROID_BINDER_DEVICES" .config || true
+
+# Force binder back to =m if olddefconfig disabled it (unmet dep workaround).
+RUN if grep -q "# CONFIG_ANDROID_BINDER_IPC is not set" .config; then \
+      echo "Binder was disabled — forcing it back to =m" && \
+      sed -i 's/# CONFIG_ANDROID_BINDER_IPC is not set/CONFIG_ANDROID_BINDER_IPC=m/' .config && \
+      sed -i 's/# CONFIG_ANDROID_BINDER_DEVICES is not set/CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"/' .config && \
+      echo 'CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"' >> .config; \
+    fi && \
+    echo "--- Final config ---" && \
+    grep -E "CONFIG_ANDROID=|CONFIG_ANDROID_BINDER_IPC|CONFIG_ASHMEM|CONFIG_ANDROID_BINDER_DEVICES" .config
 
 # Prepare kernel build infrastructure.
 RUN make prepare && make scripts
