@@ -180,6 +180,34 @@ logcatBtn.onclick = () => {
 
 $("#btn-logcat-clear").onclick = () => (logcatOut.textContent = "");
 
+// ---------- stealth ----------
+const stealthList = $("#stealth-list");
+const stealthSummary = $("#stealth-summary");
+
+async function refreshStealth() {
+  let s;
+  try {
+    s = await api("/api/stealth");
+  } catch {
+    return;
+  }
+  stealthList.querySelectorAll("li").forEach((li) => {
+    const ok = !!s.status[li.dataset.key];
+    li.classList.toggle("ok", ok);
+    li.classList.toggle("bad", !ok);
+  });
+  const allOn = Object.values(s.status).every(Boolean);
+  const mockOnly = s.status.stealthApk && s.status.mockLocAppop && !s.status.lsposed;
+  stealthSummary.textContent = s.summary;
+  stealthSummary.className = allOn
+    ? "ok"
+    : mockOnly
+      ? "warn"
+      : "bad";
+}
+
 // ---------- boot ----------
 loadConfig().then(refreshDevice);
 setInterval(refreshDevice, 5000);
+refreshStealth();
+setInterval(refreshStealth, 8000);

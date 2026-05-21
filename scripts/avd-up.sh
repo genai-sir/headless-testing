@@ -97,8 +97,11 @@ sleep 2
 "$SDK/platform-tools/adb" -s "$ADB_SERIAL" wait-for-device
 
 echo
-echo "==> enabling mock location globally (legacy switch)"
-"$SDK/platform-tools/adb" -s "$ADB_SERIAL" shell settings put secure mock_location 1 || true
+echo "==> clear the legacy 'Allow mock locations' flag"
+# Older guides set this to 1, but on API 23+ Android ignores it. Apps still
+# read it as a detection signal — keeping it 0 is the stealth-friendly state.
+# Per-app mock-loc grants happen via `cmd appops set ... mock_location allow`.
+"$SDK/platform-tools/adb" -s "$ADB_SERIAL" shell settings put secure mock_location 0 || true
 
 echo
 echo "==> ws-scrcpy"

@@ -37,6 +37,21 @@
         </details>
 
         <details open>
+          <summary>Stealth <span id="stealth-summary" class="dim"></span></summary>
+          <ul id="stealth-list" class="checklist">
+            <li data-key="magisk"><span class="dot"></span> Magisk installed</li>
+            <li data-key="lsposed"><span class="dot"></span> LSPosed manager present</li>
+            <li data-key="stealthApk"><span class="dot"></span> Stealth module APK installed</li>
+            <li data-key="mockLocAppop"><span class="dot"></span> mock_location appop granted</li>
+          </ul>
+          <p class="hint">
+            Missing layers? Run
+            <code>scripts/install-magisk-avd.sh</code> from your shell, then
+            open LSPosed manager on the device and enable scope on target apps.
+          </p>
+        </details>
+
+        <details open>
           <summary>Sideload APK</summary>
           <label class="dropzone" id="dropzone">
             <input type="file" id="apk-file" accept=".apk" hidden />

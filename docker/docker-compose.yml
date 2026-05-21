@@ -17,12 +17,11 @@ services:
     privileged: true
     ports:
       - "5555:5555"
-    # GPS, gpu config, redroid-fps tuning all passed as androidboot.* args.
     command:
       - androidboot.redroid_gpu_mode=guest
-      - androidboot.redroid_fps=60
-      - androidboot.redroid_height=1920
-      - androidboot.redroid_width=1080
+      - androidboot.redroid_fps=${REDROID_FPS:-60}
+      - androidboot.redroid_height=${REDROID_HEIGHT:-1920}
+      - androidboot.redroid_width=${REDROID_WIDTH:-1080}
     volumes:
       - redroid-data:/data
     restart: unless-stopped

@@ -11,6 +11,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Xposed Bridge API stubs (compileOnly).
+        maven { url = uri("https://api.xposed.info/") }
+        // Fallback for the same artifact if the above is unreachable:
+        // maven { url = uri("https://jitpack.io") }
     }
 }
 

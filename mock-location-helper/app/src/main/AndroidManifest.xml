@@ -4,16 +4,31 @@
 
     <!--
       No manifest permission needed for mock location since API 23.
-      The helper is enabled at runtime via:
+      The app is enabled at runtime via:
         cmd appops set com.headless.mockloc android:mock_location allow
-      (root required — both Redroid and a rooted AVD have it.)
+      (root required.)
     -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
-        android:label="MockLocationHelper"
+        android:label="headless-android stealth"
         android:allowBackup="false">
+
+        <!--
+          Legacy Xposed metadata (still respected by LSPosed for compatibility).
+          Modern LSPosed reads META-INF/xposed/ instead; both are present.
+        -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="Hide mock location and the helper package from apps." />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+
         <receiver
             android:name=".LocationReceiver"
             android:exported="true">

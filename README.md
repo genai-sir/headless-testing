@@ -48,6 +48,67 @@ scripts/redroid-up.sh
 
 Stop: `scripts/redroid-down.sh`
 
+## Synology NAS (DS224+ / Intel-based)
+
+Tested on DS224+ (Celeron J4125, 10 GB RAM, DSM 7.x). Any Intel-based Synology with Container Manager should work.
+
+### Prerequisites
+
+1. **Container Manager** installed from DSM Package Center.
+2. **SSH enabled**: Control Panel → Terminal & SNMP → Enable SSH service.
+3. **Kernel modules**: Redroid needs `binder_linux` and `ashmem_linux`. The deploy script attempts to load them automatically. If they're missing from your DSM kernel, see the [redroid wiki](https://github.com/remote-android/redroid-doc) for DKMS instructions.
+
+### Deploy
+
+From your Mac (or any machine), copy the project to the NAS and run the deploy script:
+
+```bash
+# copy the project to the NAS (replace NAS_IP)
+rsync -avz --exclude node_modules --exclude .git \
+  . admin@NAS_IP:/volume1/docker/headless-android/
+
+# SSH in and deploy
+ssh admin@NAS_IP
+cd /volume1/docker/headless-android
+sudo bash scripts/synology-deploy.sh
+```
+
+The script will:
+- Verify Docker and kernel modules
+- Build and start all three containers
+- Create a boot script so the kernel modules survive reboots
+- Print the LAN URLs when done
+
+### Access from your network
+
+```
+Dashboard:  http://<NAS_IP>:3000
+Screen:     http://<NAS_IP>:8000
+adb:        adb connect <NAS_IP>:5555
+```
+
+The dashboard auto-resolves ws-scrcpy's URL to the NAS IP when accessed over the network — no manual config needed.
+
+### Lower resource usage (optional)
+
+On a Celeron J4125, you can reduce the Android display to save CPU:
+
+```bash
+# in the project directory on the NAS
+REDROID_FPS=30 REDROID_HEIGHT=1280 REDROID_WIDTH=720 \
+  sudo docker compose -f docker/docker-compose.yml up -d --build
+```
+
+### Stop / restart
+
+```bash
+# stop
+sudo docker compose -f /volume1/docker/headless-android/docker/docker-compose.yml down
+
+# restart
+sudo docker compose -f /volume1/docker/headless-android/docker/docker-compose.yml up -d
+```
+
 ---
 
 ## What the dashboard does
@@ -63,14 +124,36 @@ Stop: `scripts/redroid-down.sh`
 - **AVD**: Uses the emulator console (`adb emu geo fix LNG LAT`). Works out of the box.
 - **Redroid**: Android's mock location requires an app registered as the mock provider. The dashboard installs `mock-location-helper/MockLocationHelper.apk` on first boot, grants it `android:mock_location` via `appops`, and sends coordinates via `am broadcast`. See [mock-location-helper/README.md](mock-location-helper/README.md) for the source.
 
+## Stealth (hide mock GPS from apps)
+
+```bash
+# one-shot: Magisk + LSPosed + stealth module + DB enable + reboots
+scripts/install-magisk-avd.sh
+
+# scope-enable the module on each target app
+scripts/scope.sh add com.uber.app
+scripts/scope.sh add com.your.bank.app
+scripts/scope.sh apply              # reboot so hooks load
+scripts/scope.sh list               # what's currently scoped
+```
+
+The dashboard's **Stealth** panel shows live status of all four layers
+(Magisk / LSPosed / stealth APK / mock_location appop). When all four are
+green and the target app is in scope, the app sees `Location.isFromMockProvider()
+= false` and our helper package isn't visible in its PackageManager.
+
+See [mock-location-helper/README.md](mock-location-helper/README.md) for the
+full detection-vs-defeat matrix.
+
 ## Layout
 
 ```
 backend/   Node/Express API
 web/       Static dashboard (served by backend)
-scripts/   avd-up, avd-down, redroid-up, redroid-down, doctor
+scripts/   avd-up, avd-down, redroid-up, redroid-down, doctor,
+           install-magisk-avd (stealth bootstrap), scope (per-app scope)
 docker/    Compose + Dockerfiles for the Linux path
-mock-location-helper/  Tiny APK + build notes
+mock-location-helper/  LSPosed module + plain BroadcastReceiver in one APK
 ```
 
 ## Security

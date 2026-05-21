@@ -10,6 +10,10 @@ backend/uploads/
 build/
 dist/
 
+# Gradle (mock-location-helper)
+.gradle/
+local.properties
+
 # runtime pid/log dir from avd-up.sh
 .run/
 

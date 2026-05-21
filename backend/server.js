@@ -7,6 +7,7 @@ import apkRoutes from "./routes/apk.js";
 import locationRoutes from "./routes/location.js";
 import shellRoutes from "./routes/shell.js";
 import logcatRoutes from "./routes/logcat.js";
+import stealthRoutes from "./routes/stealth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = join(__dirname, "..", "web");
@@ -14,10 +15,17 @@ const webDir = join(__dirname, "..", "web");
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
-app.get("/api/config", (_req, res) => {
+app.get("/api/config", (req, res) => {
+  // When accessed over the network, rewrite localhost in wsScrcpyUrl to the
+  // actual host the browser used so the iframe reaches the NAS, not the laptop.
+  let wsUrl = config.wsScrcpyUrl;
+  const reqHost = req.hostname;
+  if (reqHost && reqHost !== "localhost" && reqHost !== "127.0.0.1") {
+    wsUrl = wsUrl.replace(/\blocalhost\b|127\.0\.0\.1/, reqHost);
+  }
   res.json({
     backendType: config.backendType,
-    wsScrcpyUrl: config.wsScrcpyUrl,
+    wsScrcpyUrl: wsUrl,
     adbSerial: config.adbSerial || null,
   });
 });
@@ -27,6 +35,7 @@ app.use("/api/apk", apkRoutes);
 app.use("/api/location", locationRoutes);
 app.use("/api/shell", shellRoutes);
 app.use("/api/logcat", logcatRoutes);
+app.use("/api/stealth", stealthRoutes);
 
 // Serve the dashboard static files.
 app.use(express.static(webDir));
