@@ -1,11 +1,8 @@
 # Compiles binder_linux.ko and ashmem_linux.ko for Synology DSM (geminilake).
 #
-# Instead of fighting Kconfig bool→tristate, we directly patch the Makefile
-# to force-build binder and ashmem as modules (obj-m).
-#
-# Build args (override for different DSM builds):
-#   DSM_BUILD  — e.g. 7.3-86009  (default, matches DS224+ on DSM 7.3.2)
-#   PLATFORM   — e.g. geminilake  (default)
+# The kernel 4.4.302 source has binder/ashmem as built-in only (bool, uses
+# device_initcall). We patch the sources and Makefiles to build them as
+# loadable modules (obj-m, module_init).
 
 FROM debian:bookworm-slim
 
@@ -21,14 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Download Synology x86_64 toolchain for geminilake.
 RUN wget -q -O toolchain.txz \
     "https://global.synologydownload.com/download/ToolChain/toolchain/${DSM_BUILD}/Intel%20x86%20Linux%204.4.302%20%28GeminiLake%29/${PLATFORM}-gcc1220_glibc236_x86_64-GPL.txz" \
     && mkdir -p /toolchain \
     && tar -xf toolchain.txz -C /toolchain \
     && rm toolchain.txz
 
-# Download Synology GPL kernel source for geminilake.
 RUN wget -q -O linux-4.4.x.txz \
     "https://global.synologydownload.com/download/ToolChain/Synology%20NAS%20GPL%20Source/${DSM_BUILD}/${PLATFORM}/linux-4.4.x.txz" \
     && tar -xf linux-4.4.x.txz \
@@ -36,50 +31,78 @@ RUN wget -q -O linux-4.4.x.txz \
 
 WORKDIR /build/linux-4.4.x
 
-# Use Synology's geminilake kernel config and enable the ANDROID subsystem.
+# Configure kernel and prepare build infrastructure.
 RUN cp synoconfigs/${PLATFORM} .config && \
     scripts/config --enable ANDROID && \
     scripts/config --enable SHMEM && \
     scripts/config --enable MMU && \
-    make olddefconfig
+    make olddefconfig && \
+    make prepare && \
+    make scripts
 
-# Prepare kernel build infrastructure.
-RUN make prepare && make scripts
+# Find where binder and ashmem live in this kernel tree.
+RUN echo "=== Locating binder ===" && \
+    find drivers/ -name "binder.c" -o -name "binder_linux.c" | head -10 && \
+    echo "=== Locating ashmem ===" && \
+    find drivers/ -name "ashmem.c" -o -name "ashmem_linux.c" | head -10
 
-# Show what's in the android staging directory (diagnostic).
-RUN echo "--- Makefile ---" && \
-    cat drivers/staging/android/Makefile && \
-    echo "--- Source files ---" && \
-    ls drivers/staging/android/*.c
+# ── Build ashmem as a module ─────────────────────────────────────────────────
+# Patch: device_initcall → module_init (required for loadable modules).
+RUN sed -i 's/device_initcall(ashmem_init);/module_init(ashmem_init);\nMODULE_LICENSE("GPL");/' \
+    drivers/staging/android/ashmem.c
 
-# Force-patch the Makefile so binder and ashmem are built as modules (obj-m)
-# regardless of the Kconfig bool settings.
-RUN sed -i 's/obj-$(CONFIG_ANDROID_BINDER_IPC)/obj-m/' drivers/staging/android/Makefile && \
-    sed -i 's/obj-$(CONFIG_ASHMEM)/obj-m/' drivers/staging/android/Makefile && \
-    echo "--- Patched Makefile ---" && \
-    cat drivers/staging/android/Makefile
+# Force ashmem as obj-m in the Makefile.
+RUN sed -i 's/obj-$(CONFIG_ASHMEM)/obj-m/' drivers/staging/android/Makefile
 
-# Build the modules.
-RUN make M=drivers/staging/android modules
+RUN make M=drivers/staging/android modules 2>&1 || true && \
+    ls -la drivers/staging/android/ashmem.ko && \
+    echo "ashmem.ko built OK"
 
-# Show what was built.
-RUN echo "--- Built .ko files ---" && \
-    find drivers/staging/android/ -name "*.ko" -exec ls -la {} \;
+# ── Build binder as a module ─────────────────────────────────────────────────
+# Binder may be in drivers/android/ (de-staged) or drivers/staging/android/.
+# Detect and build from whichever location has it.
+RUN BINDER_DIR=$(dirname $(find drivers/ -path "*/android/binder.c" | head -1)) && \
+    echo "Binder found in: $BINDER_DIR" && \
+    echo "$BINDER_DIR" > /tmp/binder_dir
 
-# Copy and normalize names → binder_linux.ko / ashmem_linux.ko
+# Patch binder source for module compilation.
+RUN BINDER_DIR=$(cat /tmp/binder_dir) && \
+    echo "=== Original Makefile in $BINDER_DIR ===" && \
+    cat "$BINDER_DIR/Makefile" && \
+    echo "=== Patching ===" && \
+    # Replace device_initcall with module_init in binder.c
+    sed -i 's/device_initcall(binder_init);/module_init(binder_init);\nMODULE_LICENSE("GPL");/' \
+        "$BINDER_DIR/binder.c" && \
+    # Check if binder has its own Makefile entry or uses Kconfig
+    if grep -q 'CONFIG_ANDROID_BINDER_IPC' "$BINDER_DIR/Makefile"; then \
+        sed -i 's/obj-$(CONFIG_ANDROID_BINDER_IPC)/obj-m/' "$BINDER_DIR/Makefile"; \
+    else \
+        echo 'obj-m += binder.o' >> "$BINDER_DIR/Makefile"; \
+    fi && \
+    echo "=== Patched Makefile ===" && \
+    cat "$BINDER_DIR/Makefile"
+
+RUN BINDER_DIR=$(cat /tmp/binder_dir) && \
+    make M="$BINDER_DIR" modules 2>&1 || true && \
+    ls -la "$BINDER_DIR"/*.ko && \
+    echo "binder built OK"
+
+# ── Collect and rename ───────────────────────────────────────────────────────
 RUN mkdir -p /out && \
-    for ko in drivers/staging/android/*.ko; do \
-      base=$(basename "$ko"); \
-      case "$base" in \
-        binder_linux.ko) cp "$ko" /out/binder_linux.ko ;; \
-        binder.ko)       cp "$ko" /out/binder_linux.ko ;; \
-        ashmem_linux.ko) cp "$ko" /out/ashmem_linux.ko ;; \
-        ashmem.ko)       cp "$ko" /out/ashmem_linux.ko ;; \
-        *)               cp "$ko" /out/ ;; \
-      esac; \
+    BINDER_DIR=$(cat /tmp/binder_dir) && \
+    # ashmem
+    if [ -f drivers/staging/android/ashmem.ko ]; then \
+        cp drivers/staging/android/ashmem.ko /out/ashmem_linux.ko; \
+    elif [ -f drivers/staging/android/ashmem_linux.ko ]; then \
+        cp drivers/staging/android/ashmem_linux.ko /out/ashmem_linux.ko; \
+    fi && \
+    # binder
+    for ko in "$BINDER_DIR"/binder.ko "$BINDER_DIR"/binder_linux.ko; do \
+        [ -f "$ko" ] && cp "$ko" /out/binder_linux.ko && break; \
     done && \
-    ls -la /out/
-
-RUN modinfo /out/binder_linux.ko && echo "---" && modinfo /out/ashmem_linux.ko
+    echo "=== Final modules ===" && \
+    ls -la /out/ && \
+    modinfo /out/binder_linux.ko && echo "---" && \
+    modinfo /out/ashmem_linux.ko
 
 CMD ["echo", "Modules built. Copy from /out/"]
