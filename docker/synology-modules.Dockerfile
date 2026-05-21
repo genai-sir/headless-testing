@@ -32,11 +32,14 @@ RUN wget -q -O linux-4.4.x.txz \
 WORKDIR /build/linux-4.4.x
 
 # Configure kernel and prepare build infrastructure.
+# LOCALVERSION=+ matches the NAS kernel's uname -r suffix (4.4.302+).
 RUN cp synoconfigs/${PLATFORM} .config && \
     scripts/config --enable ANDROID && \
     scripts/config --enable SHMEM && \
     scripts/config --enable MMU && \
+    scripts/config --set-str LOCALVERSION + && \
     make olddefconfig && \
+    echo "kernelrelease: $(make kernelrelease 2>/dev/null)" && \
     make prepare && \
     make scripts
 
