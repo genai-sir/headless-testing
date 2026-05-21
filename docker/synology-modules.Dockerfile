@@ -44,9 +44,10 @@ COPY ashmem_deps.c /build/ashmem_deps.c
 COPY binder_deps.c /build/binder_deps.c
 
 # ── Prepare ashmem out-of-tree build ─────────────────────────────────────────
-RUN mkdir -p /build/ashmem && \
+RUN mkdir -p /build/ashmem/uapi && \
     cp drivers/staging/android/ashmem.c /build/ashmem/ && \
-    find drivers/staging/android/ -name "*.h" -exec cp {} /build/ashmem/ \; 2>/dev/null || true && \
+    cp drivers/staging/android/ashmem.h /build/ashmem/ 2>/dev/null || true && \
+    cp drivers/staging/android/uapi/ashmem.h /build/ashmem/uapi/ 2>/dev/null || true && \
     cp /build/ashmem_deps.c /build/ashmem/deps.c
 
 RUN sed -i '1i #include <linux/module.h>' /build/ashmem/ashmem.c && \
