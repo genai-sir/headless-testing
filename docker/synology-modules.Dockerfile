@@ -47,18 +47,13 @@ RUN echo "=== Locating binder ===" && \
     find drivers/ -name "ashmem.c" -o -name "ashmem_linux.c" | head -10
 
 # ── Build ashmem as a module ─────────────────────────────────────────────────
-# Patch source: add module.h include, replace device_initcall with module_init.
+# Patch: add module.h, replace device_initcall with module_init, force obj-m.
+# No module_exit needed — the module just needs to load at boot, never unload.
 RUN sed -i '1i #include <linux/module.h>' drivers/staging/android/ashmem.c && \
-    sed -i 's/device_initcall(ashmem_init);/module_init(ashmem_init);\nmodule_exit(ashmem_exit);\nMODULE_LICENSE("GPL");/' \
+    sed -i 's/device_initcall(ashmem_init);/module_init(ashmem_init);\nMODULE_LICENSE("GPL");/' \
         drivers/staging/android/ashmem.c && \
     sed -i 's/obj-$(CONFIG_ASHMEM)/obj-m/' drivers/staging/android/Makefile
 
-# Add a minimal module_exit if one doesn't exist.
-RUN grep -q 'ashmem_exit' drivers/staging/android/ashmem.c || \
-    sed -i '/^module_init/i static void __exit ashmem_exit(void) { }' \
-        drivers/staging/android/ashmem.c
-
-# Disable -Werror for staging to tolerate warnings.
 RUN make M=drivers/staging/android EXTRA_CFLAGS=-Wno-error modules && \
     ls -la drivers/staging/android/ashmem.ko && \
     echo "ashmem.ko built OK"
@@ -73,12 +68,8 @@ RUN BINDER_DIR=$(dirname $(find drivers/ -path "*/android/binder.c" | head -1)) 
 # Patch binder source: add module.h, replace device_initcall, fix Makefile.
 RUN BINDER_DIR=$(cat /tmp/binder_dir) && \
     sed -i '1i #include <linux/module.h>' "$BINDER_DIR/binder.c" && \
-    sed -i 's/device_initcall(binder_init);/module_init(binder_init);\nmodule_exit(binder_exit);\nMODULE_LICENSE("GPL");/' \
+    sed -i 's/device_initcall(binder_init);/module_init(binder_init);\nMODULE_LICENSE("GPL");/' \
         "$BINDER_DIR/binder.c" && \
-    # Add a minimal module_exit if one doesn't exist.
-    (grep -q 'binder_exit' "$BINDER_DIR/binder.c" || \
-     sed -i '/^module_init/i static void __exit binder_exit(void) { }' "$BINDER_DIR/binder.c") && \
-    # Force binder as obj-m in the Makefile.
     if grep -q 'CONFIG_ANDROID_BINDER_IPC' "$BINDER_DIR/Makefile"; then \
         sed -i 's/obj-$(CONFIG_ANDROID_BINDER_IPC)/obj-m/' "$BINDER_DIR/Makefile"; \
     else \
