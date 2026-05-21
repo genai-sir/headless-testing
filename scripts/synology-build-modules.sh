@@ -32,7 +32,7 @@ if [[ -z "$DSM_BUILD" ]] && [[ -f /etc.defaults/VERSION ]]; then
   fi
 fi
 
-DSM_BUILD="${DSM_BUILD:-7.2-72806}"
+DSM_BUILD="${DSM_BUILD:-7.3-86009}"
 PLATFORM="${PLATFORM:-geminilake}"
 
 info "Building kernel modules for DSM $DSM_BUILD ($PLATFORM)"

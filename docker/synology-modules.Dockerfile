@@ -1,15 +1,15 @@
-# Compiles binder_linux.ko and ashmem_linux.ko for Synology DSM 7.2 (geminilake).
+# Compiles binder_linux.ko and ashmem_linux.ko for Synology DSM (geminilake).
 #
-# In kernel 4.4.x, binder and ashmem are bool (built-in only). We patch them
-# to tristate so they can be compiled as loadable modules (.ko).
+# Instead of fighting Kconfig bool→tristate, we directly patch the Makefile
+# to force-build binder and ashmem as modules (obj-m).
 #
 # Build args (override for different DSM builds):
-#   DSM_BUILD  — e.g. 7.2-72806  (default)
+#   DSM_BUILD  — e.g. 7.3-86009  (default, matches DS224+ on DSM 7.3.2)
 #   PLATFORM   — e.g. geminilake  (default)
 
 FROM debian:bookworm-slim
 
-ARG DSM_BUILD=7.2-72806
+ARG DSM_BUILD=7.3-86009
 ARG PLATFORM=geminilake
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -36,57 +36,37 @@ RUN wget -q -O linux-4.4.x.txz \
 
 WORKDIR /build/linux-4.4.x
 
-# Patch Kconfig: change every bool → tristate in the android staging Kconfig
-# so binder and ashmem can be built as loadable modules (.ko).
-# Using a pattern that matches the config symbol line, then changes the type
-# keyword on the next line — avoids depending on exact help-text strings.
-RUN echo "--- Before patch ---" && \
-    grep -A1 'config ANDROID_BINDER_IPC' drivers/staging/android/Kconfig && \
-    grep -A1 'config ASHMEM' drivers/staging/android/Kconfig && \
-    sed -i '/^\tdefault n/d' drivers/staging/android/Kconfig && \
-    sed -i 's/^\tbool$/\ttristate/' drivers/staging/android/Kconfig && \
-    sed -i 's/^\tbool "/\ttristate "/' drivers/staging/android/Kconfig && \
-    echo "--- After patch ---" && \
-    grep -A1 'config ANDROID_BINDER_IPC' drivers/staging/android/Kconfig && \
-    grep -A1 'config ASHMEM' drivers/staging/android/Kconfig
-
-# Start from Synology's geminilake defconfig.
-RUN cp synoconfigs/${PLATFORM} .config
-
-# Use scripts/config (reliable) to enable binder + ashmem as modules.
-RUN scripts/config --enable ANDROID && \
-    scripts/config --module ANDROID_BINDER_IPC && \
-    scripts/config --module ASHMEM && \
-    scripts/config --set-str ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"
-
-RUN make olddefconfig
-
-# Check what olddefconfig decided. If binder got disabled, force it back on.
-RUN echo "--- Config after olddefconfig ---" && \
-    grep -E "CONFIG_ANDROID=|CONFIG_ANDROID_BINDER_IPC|CONFIG_ASHMEM|CONFIG_ANDROID_BINDER_DEVICES" .config || true
-
-# Force binder back to =m if olddefconfig disabled it (unmet dep workaround).
-RUN if grep -q "# CONFIG_ANDROID_BINDER_IPC is not set" .config; then \
-      echo "Binder was disabled — forcing it back to =m" && \
-      sed -i 's/# CONFIG_ANDROID_BINDER_IPC is not set/CONFIG_ANDROID_BINDER_IPC=m/' .config && \
-      sed -i 's/# CONFIG_ANDROID_BINDER_DEVICES is not set/CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"/' .config && \
-      echo 'CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"' >> .config; \
-    fi && \
-    echo "--- Final config ---" && \
-    grep -E "CONFIG_ANDROID=|CONFIG_ANDROID_BINDER_IPC|CONFIG_ASHMEM|CONFIG_ANDROID_BINDER_DEVICES" .config
+# Use Synology's geminilake kernel config and enable the ANDROID subsystem.
+RUN cp synoconfigs/${PLATFORM} .config && \
+    scripts/config --enable ANDROID && \
+    scripts/config --enable SHMEM && \
+    scripts/config --enable MMU && \
+    make olddefconfig
 
 # Prepare kernel build infrastructure.
 RUN make prepare && make scripts
 
-# Compile only the staging/android modules.
+# Show what's in the android staging directory (diagnostic).
+RUN echo "--- Makefile ---" && \
+    cat drivers/staging/android/Makefile && \
+    echo "--- Source files ---" && \
+    ls drivers/staging/android/*.c
+
+# Force-patch the Makefile so binder and ashmem are built as modules (obj-m)
+# regardless of the Kconfig bool settings.
+RUN sed -i 's/obj-$(CONFIG_ANDROID_BINDER_IPC)/obj-m/' drivers/staging/android/Makefile && \
+    sed -i 's/obj-$(CONFIG_ASHMEM)/obj-m/' drivers/staging/android/Makefile && \
+    echo "--- Patched Makefile ---" && \
+    cat drivers/staging/android/Makefile
+
+# Build the modules.
 RUN make M=drivers/staging/android modules
 
-# List whatever .ko files were produced (names vary by kernel version).
-RUN echo "--- Built modules ---" && \
+# Show what was built.
+RUN echo "--- Built .ko files ---" && \
     find drivers/staging/android/ -name "*.ko" -exec ls -la {} \;
 
-# Copy and normalize module names (kernel 4.4.x produces binder.ko / ashmem.ko,
-# but redroid and modprobe expect binder_linux.ko / ashmem_linux.ko).
+# Copy and normalize names → binder_linux.ko / ashmem_linux.ko
 RUN mkdir -p /out && \
     for ko in drivers/staging/android/*.ko; do \
       base=$(basename "$ko"); \
@@ -100,7 +80,6 @@ RUN mkdir -p /out && \
     done && \
     ls -la /out/
 
-# Print vermagic so the user can confirm it matches uname -r on the NAS.
 RUN modinfo /out/binder_linux.ko && echo "---" && modinfo /out/ashmem_linux.ko
 
 CMD ["echo", "Modules built. Copy from /out/"]
