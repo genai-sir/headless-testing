@@ -56,7 +56,6 @@ Tested on DS224+ (Celeron J4125, 10 GB RAM, DSM 7.x). Any Intel-based Synology w
 
 1. **Container Manager** installed from DSM Package Center.
 2. **SSH enabled**: Control Panel → Terminal & SNMP → Enable SSH service.
-3. **Kernel modules**: Redroid needs `binder_linux` and `ashmem_linux`. The deploy script attempts to load them automatically. If they're missing from your DSM kernel, see the [redroid wiki](https://github.com/remote-android/redroid-doc) for DKMS instructions.
 
 ### Deploy
 
@@ -74,10 +73,22 @@ sudo bash scripts/synology-deploy.sh
 ```
 
 The script will:
-- Verify Docker and kernel modules
-- Build and start all three containers
-- Create a boot script so the kernel modules survive reboots
-- Print the LAN URLs when done
+1. Check if `binder_linux` / `ashmem_linux` kernel modules are available
+2. If not, **automatically compile them** from Synology's GPL kernel source via Docker (~500 MB download, 10-20 min first time only)
+3. Load the modules and create a boot script so they survive NAS reboots
+4. Build and start all three containers (redroid, ws-scrcpy, backend)
+5. Print the LAN URLs when done
+
+If the auto-build fails (vermagic mismatch), rebuild with your exact DSM build number:
+
+```bash
+# find your DSM build number
+cat /etc.defaults/VERSION
+
+# rebuild targeting that exact version
+DSM_BUILD=7.2-72806 sudo bash scripts/synology-build-modules.sh
+sudo bash scripts/synology-deploy.sh
+```
 
 ### Access from your network
 

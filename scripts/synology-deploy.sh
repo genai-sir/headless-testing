@@ -49,6 +49,7 @@ info "Compose OK: $($COMPOSE version)"
 # ── 2. Kernel modules (binder + ashmem) ─────────────────────────────────────
 
 MODULES_OK=true
+MODULES_DIR="$ROOT/docker/modules"
 
 load_module() {
   local mod="$1"
@@ -63,7 +64,19 @@ load_module() {
     return 0
   fi
 
-  # Some DSM builds ship .ko files but don't auto-load them.
+  # Try the pre-built .ko from docker/modules/ (compiled by synology-build-modules.sh).
+  if [[ -f "$MODULES_DIR/${mod}.ko" ]]; then
+    warn "Found $MODULES_DIR/${mod}.ko — loading with insmod…"
+    if insmod "$MODULES_DIR/${mod}.ko" devices="binder,hwbinder,vndbinder" 2>/dev/null \
+    || insmod "$MODULES_DIR/${mod}.ko" 2>/dev/null; then
+      info "Loaded '$mod' from pre-built module."
+      return 0
+    else
+      printf "${RED}[✗]${NC} insmod failed for %s (vermagic mismatch?).\n" "$MODULES_DIR/${mod}.ko"
+    fi
+  fi
+
+  # Check /lib/modules as last resort.
   local ko
   ko=$(find /lib/modules -name "${mod}.ko" 2>/dev/null | head -1)
   if [[ -n "$ko" ]]; then
@@ -85,40 +98,61 @@ for mod in binder_linux ashmem_linux; do
 done
 
 if [[ "$MODULES_OK" != "true" ]]; then
-  echo
-  echo "═══════════════════════════════════════════════════════════════════"
-  echo "  The kernel modules binder_linux / ashmem_linux are required"
-  echo "  by Redroid but could not be loaded on this DSM kernel."
-  echo
-  echo "  Options:"
-  echo "    1. Install redroid-modules DKMS for your DSM kernel version."
-  echo "       See: https://github.com/remote-android/redroid-doc"
-  echo
-  echo "    2. Build modules from Synology GPL kernel source:"
-  echo "       https://github.com/SynologyOpenSource/pkgscripts-ng"
-  echo "       Kernel source: https://sourceforge.net/projects/dsgpl/"
-  echo
-  echo "    3. Check Synology community forums for DS224+ kernel module"
-  echo "       packages — other users may have pre-built them."
-  echo
-  echo "  After installing, re-run this script."
-  echo "═══════════════════════════════════════════════════════════════════"
-  exit 1
+  # Check if we have the build script and offer to compile automatically.
+  if [[ -f "$ROOT/scripts/synology-build-modules.sh" ]] && [[ ! -f "$MODULES_DIR/binder_linux.ko" ]]; then
+    echo
+    warn "Kernel modules not found. Compiling them from Synology GPL source…"
+    warn "This downloads ~500 MB and takes 10-20 min (first time only)."
+    echo
+    bash "$ROOT/scripts/synology-build-modules.sh"
+
+    # Retry loading after build.
+    MODULES_OK=true
+    for mod in binder_linux ashmem_linux; do
+      if ! lsmod | grep -q "^${mod}"; then
+        if [[ -f "$MODULES_DIR/${mod}.ko" ]]; then
+          insmod "$MODULES_DIR/${mod}.ko" devices="binder,hwbinder,vndbinder" 2>/dev/null \
+          || insmod "$MODULES_DIR/${mod}.ko" 2>/dev/null \
+          || { MODULES_OK=false; printf "${RED}[✗]${NC} insmod failed for '%s' after build.\n" "$mod"; }
+        else
+          MODULES_OK=false
+        fi
+      fi
+    done
+  fi
+
+  if [[ "$MODULES_OK" != "true" ]]; then
+    echo
+    echo "═══════════════════════════════════════════════════════════════════"
+    echo "  The kernel modules binder_linux / ashmem_linux could not be"
+    echo "  loaded. The compiled .ko vermagic may not match your kernel."
+    echo
+    echo "  Your kernel: $(uname -r)"
+    echo
+    echo "  Try rebuilding with your exact DSM build number:"
+    echo "    DSM_BUILD=x.x-xxxxx sudo bash scripts/synology-build-modules.sh"
+    echo
+    echo "  Find your DSM build: cat /etc.defaults/VERSION"
+    echo "═══════════════════════════════════════════════════════════════════"
+    exit 1
+  fi
 fi
 
 # Ensure modules survive a NAS reboot.
 TASK_CONF="/usr/local/etc/rc.d/redroid-modules.sh"
-if [[ ! -f "$TASK_CONF" ]]; then
-  info "Creating boot script to auto-load modules on reboot…"
-  cat > "$TASK_CONF" <<'BOOT'
+info "Creating boot script to auto-load modules on reboot…"
+cat > "$TASK_CONF" <<BOOT
 #!/bin/sh
 # Load kernel modules needed by Redroid on every DSM boot.
-modprobe binder_linux 2>/dev/null || true
-modprobe ashmem_linux 2>/dev/null || true
+modprobe binder_linux 2>/dev/null \\
+  || insmod ${MODULES_DIR}/binder_linux.ko devices="binder,hwbinder,vndbinder" 2>/dev/null \\
+  || true
+modprobe ashmem_linux 2>/dev/null \\
+  || insmod ${MODULES_DIR}/ashmem_linux.ko 2>/dev/null \\
+  || true
 BOOT
-  chmod 755 "$TASK_CONF"
-  info "Created $TASK_CONF"
-fi
+chmod 755 "$TASK_CONF"
+info "Created $TASK_CONF"
 
 # ── 3. Detect NAS LAN IP ────────────────────────────────────────────────────
 

@@ -20,5 +20,8 @@ local.properties
 # ws-scrcpy clone target
 .ws-scrcpy/
 
+# Compiled kernel modules for Synology NAS
+docker/modules/
+
 # Claude Code local-only settings (per-machine permission grants)
 .claude/settings.local.json
