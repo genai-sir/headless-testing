@@ -24,9 +24,6 @@ services:
       - androidboot.redroid_width=${REDROID_WIDTH:-1080}
     volumes:
       - redroid-data:/data
-      - ./magisk/magisk.rc:/vendor/etc/init/magisk.rc:ro
-      - ./magisk/setup.sh:/setup.sh:ro
-      - ./magisk/magisk.tar:/magisk.tar:ro
     restart: unless-stopped
     networks:
       - hl

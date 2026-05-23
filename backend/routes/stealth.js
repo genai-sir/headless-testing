@@ -21,7 +21,7 @@ async function check(cmd) {
 
 router.get("/", async (_req, res) => {
   const [magisk, lsposed, stealthApk, appop] = await Promise.all([
-    check("su -v 2>/dev/null"),
+    check("/sbin/su -v 2>/dev/null || su -v 2>/dev/null"),
     check("pm list packages org.lsposed.manager"),
     check("pm list packages com.headless.mockloc"),
     check("cmd appops get com.headless.mockloc android:mock_location 2>/dev/null"),
