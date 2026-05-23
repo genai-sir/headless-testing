@@ -80,6 +80,27 @@ services:
       retries: 3
       start_period: 120s
 
+  # Edge-triggered health monitor. Polls /api/health on the backend; on a
+  # state transition (ok->failed or failed->ok) POSTs to MONITOR_WEBHOOK_URL.
+  # Compatible with Slack/Discord/Synology Webhook payloads.
+  # Disabled by default — only starts if MONITOR_WEBHOOK_URL is set in .env.
+  monitor:
+    profiles: ["monitor"]
+    build:
+      context: ./monitor
+    container_name: headless-monitor
+    depends_on:
+      - backend
+    environment:
+      HEALTH_URL: ${MONITOR_HEALTH_URL:-http://backend:3000/api/health}
+      WEBHOOK_URL: ${MONITOR_WEBHOOK_URL:?set MONITOR_WEBHOOK_URL in .env or skip the monitor profile}
+      POLL_INTERVAL: ${MONITOR_POLL_INTERVAL:-30}
+      FAIL_THRESHOLD: ${MONITOR_FAIL_THRESHOLD:-3}
+      INSTANCE_NAME: ${MONITOR_INSTANCE_NAME:-headless}
+    restart: unless-stopped
+    networks:
+      - hl
+
   caddy:
     image: caddy:2-alpine
     container_name: headless-caddy
