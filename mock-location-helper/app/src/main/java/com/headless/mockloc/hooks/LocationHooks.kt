@@ -19,36 +19,52 @@ import de.robv.android.xposed.XposedHelpers
  */
 object LocationHooks {
 
+    // Real system providers — only Locations from these get sanitized.
+    // App-constructed Locations (e.g. `new Location("mock")` for a self-test)
+    // pass through untouched so behavioral hook-detection tests don't catch us.
+    private val SYSTEM_PROVIDERS = setOf("gps", "network", "fused", "passive")
+
+    private fun isFromSystemProvider(loc: Location): Boolean =
+        loc.provider in SYSTEM_PROVIDERS
+
     fun install(cl: ClassLoader) {
         val locationCls = XposedHelpers.findClass("android.location.Location", cl)
 
-        // isFromMockProvider() — present since API 18, always returns the mock bit.
         runCatching {
             XposedHelpers.findAndHookMethod(
                 locationCls, "isFromMockProvider",
-                object : XC_MethodReplacement() {
-                    override fun replaceHookedMethod(p: MethodHookParam): Any = false
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(p: MethodHookParam) {
+                        val loc = p.thisObject as? Location ?: return
+                        if (isFromSystemProvider(loc) && p.result == true) {
+                            p.result = false
+                        }
+                    }
                 },
             )
         }
 
-        // isMock() — API 31+, equivalent.
         runCatching {
             XposedHelpers.findAndHookMethod(
                 locationCls, "isMock",
-                object : XC_MethodReplacement() {
-                    override fun replaceHookedMethod(p: MethodHookParam): Any = false
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(p: MethodHookParam) {
+                        val loc = p.thisObject as? Location ?: return
+                        if (isFromSystemProvider(loc) && p.result == true) {
+                            p.result = false
+                        }
+                    }
                 },
             )
         }
 
-        // getExtras() returns a Bundle that has historically contained a
-        // "mockLocation" key. Strip it on the way out.
         runCatching {
             XposedHelpers.findAndHookMethod(
                 locationCls, "getExtras",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(p: MethodHookParam) {
+                        val loc = p.thisObject as? Location ?: return
+                        if (!isFromSystemProvider(loc)) return
                         val extras = p.result as? Bundle ?: return
                         if (extras.containsKey("mockLocation")) {
                             extras.remove("mockLocation")
