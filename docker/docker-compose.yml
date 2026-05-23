@@ -1,4 +1,5 @@
-# Linux-host deployment: rooted Android 14 in a container + ws-scrcpy + dashboard.
+# Linux-host deployment: rooted Android 14 in a container + ws-scrcpy + dashboard,
+# fronted by Caddy (TLS + basic auth).
 #
 # Host requirements:
 #   - Linux kernel with binder_linux + ashmem_linux modules
@@ -6,9 +7,11 @@
 #   - Docker engine + compose plugin
 #
 # After `docker compose up`:
-#   - redroid     adb-reachable at  redroid:5555  (also published to host:5555)
-#   - ws-scrcpy   http://<host>:8000
-#   - dashboard   http://<host>:3000
+#   - redroid     adb-reachable at  redroid:5555  (published to host:5555)
+#   - dashboard   https://<host>/        (basic auth, internal-CA TLS)
+#   - ws-scrcpy   https://<host>:8443/   (same auth realm, iframed by dashboard)
+#
+# Backend and ws-scrcpy do NOT publish host ports — only reachable via Caddy.
 
 services:
   redroid:
@@ -35,8 +38,6 @@ services:
     container_name: headless-ws-scrcpy
     depends_on:
       - redroid
-    ports:
-      - "${WS_SCRCPY_HOST_PORT:-8000}:8000"
     environment:
       WS_SCRCPY_HOSTNAME: 0.0.0.0
       WS_SCRCPY_PORT: 8000
@@ -53,20 +54,43 @@ services:
     container_name: headless-backend
     depends_on:
       - redroid
-    ports:
-      - "${BACKEND_HOST_PORT:-3000}:3000"
     environment:
       HOST: 0.0.0.0
       PORT: 3000
       BACKEND_TYPE: redroid
       ADB_SERIAL: redroid:5555
-      WS_SCRCPY_URL: http://localhost:${WS_SCRCPY_HOST_PORT:-8000}
+      # Public URL of ws-scrcpy as the user's browser will see it, behind Caddy.
+      # The literal 'localhost' is rewritten to the requested hostname at /api/config.
+      WS_SCRCPY_URL: https://localhost:${WS_SCRCPY_PUBLIC_PORT:-8443}
     networks:
       - hl
     restart: unless-stopped
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: headless-caddy
+    depends_on:
+      - backend
+      - ws-scrcpy
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+      - "${WS_SCRCPY_PUBLIC_PORT:-8443}:8443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      AUTH_USER: ${AUTH_USER:?set AUTH_USER in docker/.env}
+      AUTH_HASHED_PASS: ${AUTH_HASHED_PASS:?set AUTH_HASHED_PASS in docker/.env}
+    restart: unless-stopped
+    networks:
+      - hl
+
 volumes:
   redroid-data:
+  caddy_data:
+  caddy_config:
 
 networks:
   hl:
