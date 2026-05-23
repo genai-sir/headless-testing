@@ -9,6 +9,7 @@ import shellRoutes from "./routes/shell.js";
 import logcatRoutes from "./routes/logcat.js";
 import stealthRoutes from "./routes/stealth.js";
 import scopeRoutes from "./routes/scope.js";
+import healthRoutes from "./routes/health.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = join(__dirname, "..", "web");
@@ -38,6 +39,7 @@ app.use("/api/shell", shellRoutes);
 app.use("/api/logcat", logcatRoutes);
 app.use("/api/stealth", stealthRoutes);
 app.use("/api/scope", scopeRoutes);
+app.use("/api/health", healthRoutes);
 
 // Serve the dashboard static files.
 app.use(express.static(webDir));
