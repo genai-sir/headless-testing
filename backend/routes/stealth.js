@@ -1,7 +1,7 @@
 // GET /api/stealth -> layered status report of stealth components.
 //
 // Layer detection is best-effort and read-only:
-//   magisk     : /sbin/magisk -v returns a version string
+//   magisk     : su -v returns a MAGISK version string
 //   lsposed    : org.lsposed.manager installed
 //   stealthApk : com.headless.mockloc installed
 //   mockLocAop : appop android:mock_location is "allow" for our pkg
@@ -21,7 +21,7 @@ async function check(cmd) {
 
 router.get("/", async (_req, res) => {
   const [magisk, lsposed, stealthApk, appop] = await Promise.all([
-    check("/sbin/magisk -v 2>/dev/null"),
+    check("su -v 2>/dev/null"),
     check("pm list packages org.lsposed.manager"),
     check("pm list packages com.headless.mockloc"),
     check("cmd appops get com.headless.mockloc android:mock_location 2>/dev/null"),

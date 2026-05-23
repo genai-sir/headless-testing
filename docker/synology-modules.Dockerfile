@@ -1,7 +1,7 @@
 # Builds binder_linux.ko (multi-device) and ashmem_linux.ko for Synology DSM.
 #
-# Uses redroid-modules binder (multi-device support) + kernel-tree ashmem.
-# Both include deps.c shims for unexported Synology kernel symbols.
+# Uses Google's android-4.4-p binder (kernel 4.4 + Android P multi-device)
+# plus Synology kernel-tree ashmem. Both use deps.c shims for unexported symbols.
 
 FROM debian:bookworm-slim
 
@@ -11,7 +11,7 @@ ARG PLATFORM=geminilake
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget xz-utils ca-certificates bc kmod build-essential git \
+    wget xz-utils ca-certificates bc kmod build-essential \
     libncurses-dev libssl-dev libelf-dev bison flex cpio \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,9 +28,6 @@ RUN wget -q -O linux-4.4.x.txz \
     && tar -xf linux-4.4.x.txz \
     && rm linux-4.4.x.txz
 
-# Clone redroid-modules for multi-device binder.
-RUN git clone --depth 1 https://github.com/remote-android/redroid-modules.git /build/redroid-modules
-
 WORKDIR /build/linux-4.4.x
 
 RUN cp synoconfigs/${PLATFORM} .config && \
@@ -40,9 +37,11 @@ RUN cp synoconfigs/${PLATFORM} .config && \
     make prepare && \
     make scripts
 
-# ── Build ashmem from kernel tree (works on 4.4.x) ──────────────────────────
+# ── Copy deps.c shim files from build context ───────────────────────────────
 COPY ashmem_deps.c /build/ashmem_deps.c
+COPY binder_deps.c /build/binder_deps.c
 
+# ── Build ashmem from kernel tree (works fine) ──────────────────────────────
 RUN mkdir -p /build/ashmem/uapi && \
     cp drivers/staging/android/ashmem.c /build/ashmem/ && \
     cp drivers/staging/android/ashmem.h /build/ashmem/ 2>/dev/null || true && \
@@ -59,26 +58,52 @@ RUN printf 'ccflags-y += -I$(src) -I$(KDIR)/drivers/staging/android\nobj-m := as
 RUN make -C /build/linux-4.4.x M=/build/ashmem EXTRA_CFLAGS=-Wno-error modules && \
     ls -la /build/ashmem/ashmem_linux.ko && echo "ashmem OK"
 
-# ── Build binder from redroid-modules (multi-device support) ─────────────────
-# Copy redroid-modules binder to a writable build directory.
-RUN cp -r /build/redroid-modules/binder /build/binder_build
+# ── Copy android-4.4-p binder source (multi-device support) ──────────────────
+# Google's backport of multi-device binder to kernel 4.4, for Android P.
+COPY android-4.4-p-binder/binder.c       /build/binder/binder.c
+COPY android-4.4-p-binder/binder_alloc.c /build/binder/binder_alloc.c
+COPY android-4.4-p-binder/binder_alloc.h /build/binder/binder_alloc.h
+COPY android-4.4-p-binder/binder_trace.h /build/binder/binder_trace.h
+COPY android-4.4-p-binder/uapi/linux/android/binder.h /build/binder/uapi/linux/android/binder.h
 
-# Try building. Capture errors to diagnose.
-RUN make -C /build/linux-4.4.x M=/build/binder_build \
-    EXTRA_CFLAGS="-Wno-error -I/build/binder_build" modules 2>&1 \
+# Replace kernel's UAPI binder.h with android-4.4-p version (adds new types).
+# Safe because ashmem is already built above.
+RUN cp /build/binder/uapi/linux/android/binder.h \
+       /build/linux-4.4.x/include/uapi/linux/android/binder.h
+
+# Patch for module compilation.
+RUN sed -i '1i #include <linux/module.h>' /build/binder/binder.c && \
+    sed -i 's/device_initcall(binder_init);/module_init(binder_init);/' /build/binder/binder.c && \
+    sed -i 's/mmput_async/mmput/g' /build/binder/binder_alloc.c
+
+# Copy deps shim.
+RUN cp /build/binder_deps.c /build/binder/deps.c
+
+COPY android-4.4-p-binder/Makefile /build/binder/Makefile
+
+# Build binder. On failure, show errors for debugging.
+RUN make -C /build/linux-4.4.x M=/build/binder EXTRA_CFLAGS="-Wno-error" modules 2>&1 \
     && echo "binder OK" \
-    || { echo "=== BINDER BUILD FAILED — showing errors ==="; \
-         make -C /build/linux-4.4.x M=/build/binder_build \
-           EXTRA_CFLAGS="-Wno-error -I/build/binder_build" modules 2>&1 | grep -E "error:|undefined|fatal" | head -30; \
+    || { echo "=== BINDER BUILD FAILED ==="; \
+         make -C /build/linux-4.4.x M=/build/binder EXTRA_CFLAGS="-Wno-error" modules 2>&1 \
+           | grep -E "error:|undefined|fatal|warning:" | head -40; \
          false; }
+
+# ── Build mmap_rnd_bits shim (needed for Android 8+ on kernel 4.4) ────────
+COPY mmap_rnd_shim.c /build/mmap_rnd/mmap_rnd_shim.c
+RUN printf 'obj-m := mmap_rnd_shim.o\n' > /build/mmap_rnd/Makefile && \
+    make -C /build/linux-4.4.x M=/build/mmap_rnd modules && \
+    echo "mmap_rnd_shim OK"
 
 # ── Collect ──────────────────────────────────────────────────────────────────
 RUN mkdir -p /out && \
     cp /build/ashmem/ashmem_linux.ko /out/ && \
-    cp /build/binder_build/binder_linux.ko /out/ && \
+    cp /build/binder/binder_multidev.ko /out/ && \
+    cp /build/mmap_rnd/mmap_rnd_shim.ko /out/ && \
     echo "=== Final modules ===" && \
     ls -la /out/ && \
-    modinfo /out/binder_linux.ko && echo "---" && \
-    modinfo /out/ashmem_linux.ko
+    modinfo /out/binder_multidev.ko && echo "---" && \
+    modinfo /out/ashmem_linux.ko && echo "---" && \
+    modinfo /out/mmap_rnd_shim.ko
 
 CMD ["echo", "Modules built. Copy from /out/"]
