@@ -20,6 +20,7 @@ LOCAL_IMAGE="${LOCAL_IMAGE:-redroid/redroid:14.0.0_64only_mindthegapps_magisk}"
 IMAGE_OWNER="${IMAGE_OWNER:-genai-sir}"
 IMAGE_NAME="${IMAGE_NAME:-headless-redroid}"
 TAG="${TAG:-14.0.0_64only-mtg-magisk-$(date +%Y%m%d)}"
+SOURCE_URL="${SOURCE_URL:-https://github.com/genai-sir/headless-testing}"
 
 REMOTE="ghcr.io/${IMAGE_OWNER}/${IMAGE_NAME}:${TAG}"
 
@@ -33,8 +34,17 @@ docker info 2>/dev/null | grep -q "Username:" \
        echo "  echo \"\$GHCR_PAT\" | docker login ghcr.io -u <user> --password-stdin" >&2
        exit 1; }
 
-echo "==> tagging $LOCAL_IMAGE -> $REMOTE"
-docker tag "$LOCAL_IMAGE" "$REMOTE"
+# Stamp the OCI source label so GHCR auto-links the package to this repo
+# under https://github.com/orgs/<owner>/packages. One thin metadata layer, ~0 KB.
+echo "==> stamping OCI labels onto $REMOTE"
+docker build \
+  --label "org.opencontainers.image.source=$SOURCE_URL" \
+  --label "org.opencontainers.image.description=Rooted Android 14 (redroid) with Magisk Delta + MindTheGApps + LSPosed-ready" \
+  --label "org.opencontainers.image.revision=$(git -C "$(dirname "$0")/.." rev-parse --short=12 HEAD 2>/dev/null || echo unknown)" \
+  -t "$REMOTE" \
+  - <<EOF
+FROM $LOCAL_IMAGE
+EOF
 
 echo "==> pushing $REMOTE"
 docker push "$REMOTE"
