@@ -1,0 +1,21 @@
+diff --git a/stuff/mindthegapps.py b/stuff/mindthegapps.py
+index 0ad556b..e615f2c 100644
+--- a/stuff/mindthegapps.py
++++ b/stuff/mindthegapps.py
+@@ -20,6 +20,16 @@ class MindTheGapps(General):
+                 "4ced6a404a714e61831e16068c3642b3",
+             ],
+         },
++        "14.0.0_64only": {
++            "x86_64": [
++                "https://github.com/s1204IT/MindTheGappsBuilder/releases/download/20240226/MindTheGapps-14.0.0-x86_64-20240226.zip",
++                "a827a84ccb0cf5914756e8561257ed13",
++            ],
++            "arm64": [
++                "https://github.com/s1204IT/MindTheGappsBuilder/releases/download/20240226/MindTheGapps-14.0.0-arm64-20240226.zip",
++                "a0905cc7bf3f4f4f2e3f59a4e1fc789b",
++            ],
++        },
+         "14.0.0": {
+             "x86_64": [
+                 "https://github.com/s1204IT/MindTheGappsBuilder/releases/download/20240226/MindTheGapps-14.0.0-x86_64-20240226.zip",
