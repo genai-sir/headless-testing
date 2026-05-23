@@ -48,9 +48,62 @@ scripts/redroid-up.sh
 
 Stop: `scripts/redroid-down.sh`
 
-## Synology NAS (DS224+ / Intel-based)
+## Synology NAS via Virtual Machine Manager (recommended for NAS deployment)
 
-Tested on DS224+ (Celeron J4125, 10 GB RAM, DSM 7.x). Any Intel-based Synology with Container Manager should work.
+The cleanest path on a Synology that has VMM installed: run Redroid inside an
+Ubuntu Server VM instead of fighting DSM's locked-down kernel for the
+`binder_linux` / `ashmem_linux` modules. The VM has a normal Linux kernel
+where the modules build cleanly via DKMS.
+
+### Create the VM in VMM
+
+| Setting | Value |
+| --- | --- |
+| Guest OS | Ubuntu Server 24.04 LTS (or 22.04) |
+| vCPUs | 4 (give all the cores you have) |
+| Memory | 4 GB (6 GB if you have headroom) |
+| Disk | 30 GB |
+| CPU type | **Host model** — passes through CPU features needed by KVM |
+| Network | Bridged (so the VM gets a LAN IP and shows up on your network) |
+
+Install Ubuntu Server normally, enable OpenSSH during the install, and once
+it boots, SSH in from your Mac.
+
+### Bootstrap inside the VM
+
+One command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/genai-sir/headless-testing/main/scripts/vm-bootstrap.sh \
+  | sudo bash
+```
+
+What it does:
+
+1. Installs Docker engine + compose plugin
+2. Clones `redroid-modules` and DKMS-builds `binder_linux` + `ashmem_linux`
+   against the VM's running kernel; persists the modprobe across reboots
+3. Clones this repo to `/opt/headless-android`
+4. Runs `docker compose up -d` (redroid + ws-scrcpy + backend)
+5. Prints the LAN URL you should open from your Mac
+
+After ~3-5 min on first run the VM is serving the dashboard at
+`http://<vm-lan-ip>:3000`. ws-scrcpy at `:8000`, adb on `:5555`.
+
+### Stop / restart
+
+```bash
+ssh <user>@<vm-ip>
+cd /opt/headless-android
+sudo docker compose -f docker/docker-compose.yml down       # stop
+sudo docker compose -f docker/docker-compose.yml up -d      # restart
+```
+
+---
+
+## Synology NAS — bare-DSM path (no VMM)
+
+Tested on DS224+ (Celeron J4125, 10 GB RAM, DSM 7.x). Any Intel-based Synology with Container Manager should work. Use this path only if you don't have VMM installed — it requires compiling kernel modules against DSM's kernel, which is fiddly.
 
 ### Prerequisites
 
