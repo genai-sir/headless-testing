@@ -410,3 +410,80 @@ form#shell-form {
 .scope-actions .hint {
   margin: 0;
 }
+
+/* ---------- proxy / traffic panel ---------- */
+.flowlist {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.flowlist li {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.flowlist li:last-child { border-bottom: none; }
+.flowlist li.empty { color: var(--muted); justify-content: center; }
+
+.flowlist .method {
+  flex: 0 0 56px;
+  text-align: center;
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 1px 4px;
+  background: #2a2f37;
+}
+.flowlist .method.m-get  { color: #58a6ff; }
+.flowlist .method.m-post { color: #3fb950; }
+.flowlist .method.m-put  { color: #d29922; }
+.flowlist .method.m-delete, .flowlist .method.m-patch { color: #f85149; }
+
+.flowlist .status {
+  flex: 0 0 36px;
+  text-align: center;
+  color: var(--muted);
+}
+.flowlist .status.s2xx { color: var(--ok); }
+.flowlist .status.s3xx { color: var(--accent); }
+.flowlist .status.s4xx { color: var(--warn); }
+.flowlist .status.s5xx { color: var(--bad); }
+.flowlist .status.pending { color: var(--muted); font-style: italic; }
+
+.flowlist .url {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.dim.ok   { color: var(--ok); }
+.dim.bad  { color: var(--bad); }
+.dim.warn { color: var(--warn); }
+
+.sub-summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 6px 0;
+}
+
+#mitmweb {
+  width: 100%;
+  height: 520px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}

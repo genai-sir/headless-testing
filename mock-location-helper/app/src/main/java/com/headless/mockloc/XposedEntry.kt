@@ -1,6 +1,7 @@
 package com.headless.mockloc
 
 import com.headless.mockloc.hooks.LocationHooks
+import com.headless.mockloc.hooks.NetworkHooks
 import com.headless.mockloc.hooks.PackageManagerHooks
 import com.headless.mockloc.hooks.SettingsHooks
 import de.robv.android.xposed.IXposedHookLoadPackage
@@ -48,6 +49,15 @@ class XposedEntry : IXposedHookLoadPackage {
             PackageManagerHooks.install(lpparam.classLoader, OUR_PKG)
         } catch (t: Throwable) {
             XposedBridge.log("[$TAG] PackageManagerHooks failed in ${lpparam.packageName}: $t")
+        }
+
+        // Defeat common SSL pinning so the mitmproxy traffic monitor can
+        // decrypt HTTPS. Bundled with stealth because they share scope:
+        // any app we observe is an app we also want to keep fooled.
+        try {
+            NetworkHooks.install(lpparam.classLoader)
+        } catch (t: Throwable) {
+            XposedBridge.log("[$TAG] NetworkHooks failed in ${lpparam.packageName}: $t")
         }
     }
 

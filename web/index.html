@@ -96,6 +96,27 @@
           <pre id="loc-output" class="output"></pre>
         </details>
 
+        <details open>
+          <summary>Traffic <span id="proxy-summary" class="dim"></span></summary>
+          <div class="row">
+            <span class="hint dim" style="flex:1">transparent capture (always-on while mitm container is up)</span>
+            <button id="proxy-clear" class="ghost" title="Clear captured flows">clear</button>
+            <button id="proxy-open" class="ghost" title="Open mitmweb in a new tab">mitmweb &#8599;</button>
+          </div>
+          <ul id="flow-list" class="flowlist">
+            <li class="empty">no traffic captured</li>
+          </ul>
+          <details id="mitmweb-wrap">
+            <summary class="sub-summary">Full mitmweb (iframe)</summary>
+            <iframe
+              id="mitmweb"
+              title="mitmweb"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              src="about:blank"
+            ></iframe>
+          </details>
+        </details>
+
         <details>
           <summary>Root shell</summary>
           <form id="shell-form">
