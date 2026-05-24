@@ -9,8 +9,10 @@
 #   - redroid     adb-reachable at  redroid:5555  (also published to host:5555)
 #   - ws-scrcpy   http://<host>:8000
 #   - dashboard   http://<host>:3000
-#   - mitmproxy   proxy at mitmproxy:8080 inside the hl network (redroid points here)
-#                 web UI + flow API at http://<host>:8081 (also iframed by the dashboard)
+#   - mitmproxy   web UI + flow API at http://<host>:8081 (iframed by dashboard).
+#                 The traffic tap runs in the host netns: iptables PREROUTING
+#                 on the docker bridge for redroid catches outbound :80/:443
+#                 and redirects to mitmproxy's transparent listener on :8080.
 
 services:
   redroid:
@@ -19,11 +21,6 @@ services:
     privileged: true
     ports:
       - "5555:5555"
-      # mitmweb UI. The mitmproxy container joins this redroid container's
-      # network namespace (see below) so that mitmweb actually listens on
-      # *this* container's interfaces; docker can only port-publish from the
-      # container that owns the netns, hence the mapping lives here.
-      - "${MITM_WEB_HOST_PORT:-8081}:8081"
     command:
       - androidboot.redroid_gpu_mode=guest
       - androidboot.redroid_fps=${REDROID_FPS:-60}
@@ -68,26 +65,32 @@ services:
       BACKEND_TYPE: redroid
       ADB_SERIAL: redroid:5555
       WS_SCRCPY_URL: http://localhost:${WS_SCRCPY_HOST_PORT:-8000}
-      # mitmproxy lives in redroid's network namespace, so from the backend
-      # container we reach mitmweb via the redroid service hostname.
-      MITM_API_URL: http://redroid:8081
+      # mitmproxy now runs in the host's network namespace (so iptables on the
+      # docker bridge can catch redroid's traffic with SO_ORIGINAL_DST intact).
+      # From inside this container, the host is reachable via host.docker.internal
+      # — see extra_hosts below.
+      MITM_API_URL: http://host.docker.internal:${MITM_WEB_HOST_PORT:-8081}
       MITM_WEB_PASSWORD: ${MITM_WEB_PASSWORD:-headless-mitm}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - hl
     restart: unless-stopped
 
-  # Transparent traffic tap for redroid. This container *joins* the redroid
-  # container's network namespace (network_mode: service:redroid) so that:
+  # Transparent traffic tap for redroid. Earlier iterations placed mitmproxy
+  # *inside* redroid's network namespace, but Android's `netd` / fwmark-based
+  # routing intercepts iptables OUTPUT rules unpredictably and most
+  # post-REDIRECT packets never reached mitmproxy. We now run mitmproxy in
+  # the HOST netns (`network_mode: host`) and install iptables PREROUTING
+  # rules on the docker bridge — so packets emitted by redroid hit our
+  # rules in the host kernel (where SO_ORIGINAL_DST is preserved) before
+  # they even touch the wider host network.
   #
-  #   1. iptables OUTPUT rules installed by our entrypoint actually catch
-  #      traffic emitted by Android apps inside redroid.
-  #   2. mitmproxy's transparent mode (which depends on SO_ORIGINAL_DST being
-  #      preserved by REDIRECT in the same kernel netns) can recover the
-  #      original destination host.
-  #
-  # Because this container has no network of its own, its listening sockets
-  # (8080 transparent proxy, 8081 web UI) are exposed via redroid's port
-  # mapping above.
+  # The entrypoint discovers redroid's docker bridge interface from
+  # REDROID_NETWORK and installs the PREROUTING REDIRECT for ports 80/443.
+  # Ports 8080 (transparent proxy), 8081 (web UI), 9050 (SOCKS5 — kept for
+  # future PCAPdroid-style chaining) bind on all host interfaces; backend
+  # reaches them via host.docker.internal.
   #
   # To actually decrypt HTTPS, redroid must trust the mitmproxy CA cert as a
   # system cert. scripts/install-mitm-ca.sh installs it as a Magisk module.
@@ -98,12 +101,26 @@ services:
     container_name: headless-mitmproxy
     depends_on:
       - redroid
-    network_mode: "service:redroid"
+    network_mode: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    # Each intercepted flow holds 2+ sockets (client + server, sometimes
+    # plus TLS upstreams). Default container nofile=1024 runs out fast under
+    # browser traffic; we saw Errno 24 ("too many open files") on the
+    # accept(2) path after ~1000 attempted connections.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     environment:
       MITM_WEB_PASSWORD: ${MITM_WEB_PASSWORD:-headless-mitm}
+      # Docker-compose project name + network -> bridge interface name.
+      # Default project name is the compose dir; users can override via
+      # `name: headless-android` in compose. We pass the docker network
+      # NAME and let the entrypoint resolve it to a bridge interface via
+      # `ip link show master ...` heuristics.
+      REDROID_NETWORK: ${REDROID_NETWORK:-docker_hl}
     volumes:
       - mitmproxy-data:/home/mitmproxy/.mitmproxy
     restart: unless-stopped
