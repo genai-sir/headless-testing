@@ -103,6 +103,16 @@ fi
 # Make sure config dir is writable by 8181 (volume might be fresh).
 chown -R ${MITM_UID}:${MITM_UID} "${CONFDIR}"
 
+# Start the tiny control server as root, in background. It listens on
+# port 8082 for /enable, /disable, /status and toggles the iptables DNAT
+# rules. Lives in the same container so it inherits CAP_NET_ADMIN and the
+# host network namespace. Backend reaches it via host.docker.internal:8082.
+log "starting control server on :8082 (root, NET_ADMIN)"
+MITM_WEB_PASSWORD="${WEB_PASSWORD}" \
+LISTEN_PORT="${LISTEN_PORT}" \
+REDROID_NETWORK="${REDROID_NETWORK}" \
+  /control.py &
+
 log "starting mitmweb (transparent on ${LISTEN_PORT}, socks5 on ${SOCKS_PORT}, ui on ${WEB_PORT})"
 exec gosu ${MITM_UID}:${MITM_UID} \
   mitmweb \

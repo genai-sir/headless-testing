@@ -309,6 +309,7 @@ scopeApply.addEventListener("click", async () => {
 });
 
 // ---------- proxy / traffic ----------
+const proxyToggle = $("#proxy-toggle");
 const proxyClear = $("#proxy-clear");
 const proxyOpen = $("#proxy-open");
 const proxySummary = $("#proxy-summary");
@@ -332,14 +333,20 @@ function setProxyPill(s) {
   if (!s.mitmReachable) {
     proxySummary.textContent = "tap unreachable";
     proxySummary.className = "dim bad";
+    proxyToggle.disabled = true;
     return;
   }
+  proxyToggle.disabled = false;
+  proxyToggle.checked = !!s.capture?.enabled;
   if (s.legacyDeviceProxy) {
-    proxySummary.textContent = `capturing · legacy http_proxy=${s.legacyDeviceProxy} (clear it)`;
+    proxySummary.textContent = `legacy http_proxy=${s.legacyDeviceProxy} (clear it)`;
     proxySummary.className = "dim warn";
-  } else {
+  } else if (s.capture?.enabled) {
     proxySummary.textContent = "capturing";
     proxySummary.className = "dim ok";
+  } else {
+    proxySummary.textContent = "paused";
+    proxySummary.className = "dim";
   }
 }
 
@@ -382,6 +389,19 @@ async function refreshFlows() {
     // surface only via the proxy pill on the next status tick
   }
 }
+
+proxyToggle.addEventListener("change", async () => {
+  proxyToggle.disabled = true;
+  try {
+    await api("/api/proxy/toggle", {
+      method: "POST",
+      body: JSON.stringify({ enabled: proxyToggle.checked }),
+    });
+  } finally {
+    // refreshProxyStatus re-enables and re-syncs the checkbox to reality.
+    await refreshProxyStatus();
+  }
+});
 
 proxyClear.addEventListener("click", async () => {
   await api("/api/proxy/flows", { method: "DELETE" });

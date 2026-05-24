@@ -36,7 +36,8 @@ RUN chmod o+rx /home/mitmproxy \
  && install -d -o 8181 -g 8181 /home/mitmproxy/.mitmproxy
 
 COPY docker/mitmproxy-entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker/mitmproxy-control.py /control.py
+RUN chmod +x /entrypoint.sh /control.py
 
 # Stay root for the entrypoint — it needs CAP_NET_ADMIN to flip iptables.
 # It drops to uid 8181 with `gosu` before exec'ing mitmweb.

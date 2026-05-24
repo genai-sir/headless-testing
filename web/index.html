@@ -99,7 +99,9 @@
         <details open>
           <summary>Traffic <span id="proxy-summary" class="dim"></span></summary>
           <div class="row">
-            <span class="hint dim" style="flex:1">transparent capture (always-on while mitm container is up)</span>
+            <label class="check-inline" title="Toggle the iptables DNAT rules. mitmproxy keeps running either way; only new traffic is or isn't intercepted.">
+              <input id="proxy-toggle" type="checkbox" /> capture
+            </label>
             <button id="proxy-clear" class="ghost" title="Clear captured flows">clear</button>
             <button id="proxy-open" class="ghost" title="Open mitmweb in a new tab">mitmweb &#8599;</button>
           </div>

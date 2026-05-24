@@ -47,8 +47,42 @@ async function mitmReachable() {
   }
 }
 
+// The control endpoint lives at the same host as mitmweb, on port 8082.
+// It manipulates iptables — that's why it has its own process inside the
+// mitmproxy container (root + NET_ADMIN), separate from mitmweb (uid 8181).
+function controlUrl(path) {
+  // MITM.apiUrl is something like `http://host.docker.internal:8081`.
+  // Swap the port to 8082 for the control endpoint.
+  return MITM.apiUrl.replace(/:\d+$/, ":8082") + path;
+}
+
+async function fetchControl(path, init) {
+  const r = await fetch(controlUrl(path), {
+    ...(init || {}),
+    headers: {
+      accept: "application/json",
+      Authorization: `Bearer ${MITM.webPassword}`,
+      ...(init?.headers || {}),
+    },
+    signal: AbortSignal.timeout(4000),
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`control ${path}: ${r.status} ${text.slice(0, 200)}`);
+  }
+  return r.json();
+}
+
+async function captureStatus() {
+  try {
+    return await fetchControl("/status");
+  } catch {
+    return { enabled: false, reachable: false };
+  }
+}
+
 router.get("/status", async (_req, res) => {
-  const [reachable, legacyDeviceProxy] = await Promise.all([
+  const [reachable, legacyDeviceProxy, capture] = await Promise.all([
     mitmReachable(),
     // Just to surface any *user-set* http_proxy that's still hanging around
     // from the old global-proxy mode. We don't drive it anymore.
@@ -56,18 +90,39 @@ router.get("/status", async (_req, res) => {
       const v = (r.stdout || "").trim();
       return !v || v === "null" ? null : v;
     }).catch(() => null),
+    captureStatus(),
   ]);
   res.json({
+    // Two booleans the dashboard cares about:
+    //   mitmReachable: is the proxy daemon alive?
+    //   capture.enabled: are the iptables rules currently routing traffic
+    //                    to it? (toggleable independently)
+    capture,
     captureMode: "transparent",
     mitmReachable: reachable,
     legacyDeviceProxy,
-    enabled: reachable, // capture is on iff mitmproxy is up
+    // True iff *both* mitmproxy is alive AND iptables is currently
+    // routing traffic to it. Dashboard uses this for the "capturing" pill.
+    enabled: reachable && !!capture?.enabled,
     // Token the dashboard appends to the mitmweb iframe URL so the iframe
     // can authenticate against mitmweb without a separate login prompt. The
     // dashboard itself is expected to be auth-guarded at the edge, so this
     // is no worse than the existing trust boundary.
     webToken: MITM.webPassword,
   });
+});
+
+// Toggle the iptables DNAT rules on/off. mitmproxy keeps running either
+// way, so the flow buffer survives — only new traffic is or isn't being
+// redirected. POST body: { "enabled": true } / { "enabled": false }.
+router.post("/toggle", async (req, res, next) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const out = await fetchControl(enabled ? "/enable" : "/disable", { method: "POST" });
+    res.json({ ok: true, capture: out });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/flows", async (req, res, next) => {
