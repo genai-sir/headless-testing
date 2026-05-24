@@ -67,38 +67,37 @@ if [ -z "$BRIDGE" ]; then
   log "  Set REDROID_NETWORK in .env to match the docker network containing redroid."
   log "  Continuing without the iptables tap — mitmweb will start but won't capture anything."
 else
-  log "docker bridge for '${REDROID_NETWORK}' = ${BRIDGE}"
+  # The bridge gateway IP is the host side of the docker bridge — that is,
+  # the local IP we DNAT to. Always the first usable address of the docker
+  # network's subnet (172.X.0.1 by default).
+  GATEWAY="$(ip -4 -o addr show dev "${BRIDGE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+  log "docker bridge for '${REDROID_NETWORK}' = ${BRIDGE} (gateway ${GATEWAY:-?})"
 
-  log "configuring iptables PREROUTING REDIRECT on ${BRIDGE}"
-  # Wipe any previous tap rules so re-runs are idempotent.
-  iptables -t nat -D PREROUTING -i "${BRIDGE}" -p tcp --dport 80  -j REDIRECT --to-ports ${LISTEN_PORT} 2>/dev/null || true
-  iptables -t nat -D PREROUTING -i "${BRIDGE}" -p tcp --dport 443 -j REDIRECT --to-ports ${LISTEN_PORT} 2>/dev/null || true
+  if [ -z "$GATEWAY" ]; then
+    log "  ERROR: bridge ${BRIDGE} has no IPv4 address; can't DNAT to it."
+  else
+    # DNAT to the bridge gateway IP rather than REDIRECT to localhost. Both
+    # are functionally equivalent (mitmproxy reads SO_ORIGINAL_DST from
+    # conntrack either way) but REDIRECT to 127.0.0.1 makes the host kernel
+    # treat the post-NAT packet as a martian — source 172.18.x is not
+    # loopback, destination is — and silently drop it even with
+    # route_localnet=1. DNAT to the bridge's own IP keeps source and
+    # destination plausibly routable so the packet lands in mitmproxy's
+    # listening socket.
+    log "configuring iptables PREROUTING DNAT on ${BRIDGE} -> ${GATEWAY}:${LISTEN_PORT}"
+    # Wipe any previous tap rules so re-runs are idempotent. Cover both
+    # REDIRECT and DNAT forms from earlier iterations.
+    iptables -t nat -D PREROUTING -i "${BRIDGE}" -p tcp --dport 80  -j REDIRECT --to-ports ${LISTEN_PORT} 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i "${BRIDGE}" -p tcp --dport 443 -j REDIRECT --to-ports ${LISTEN_PORT} 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i "${BRIDGE}" -p tcp --dport 80  -j DNAT --to-destination "${GATEWAY}:${LISTEN_PORT}" 2>/dev/null || true
+    iptables -t nat -D PREROUTING -i "${BRIDGE}" -p tcp --dport 443 -j DNAT --to-destination "${GATEWAY}:${LISTEN_PORT}" 2>/dev/null || true
 
-  iptables -t nat -A PREROUTING -i "${BRIDGE}" -p tcp --dport 80  -j REDIRECT --to-ports ${LISTEN_PORT}
-  iptables -t nat -A PREROUTING -i "${BRIDGE}" -p tcp --dport 443 -j REDIRECT --to-ports ${LISTEN_PORT}
+    iptables -t nat -A PREROUTING -i "${BRIDGE}" -p tcp --dport 80  -j DNAT --to-destination "${GATEWAY}:${LISTEN_PORT}"
+    iptables -t nat -A PREROUTING -i "${BRIDGE}" -p tcp --dport 443 -j DNAT --to-destination "${GATEWAY}:${LISTEN_PORT}"
 
-  # REDIRECT to a local port means the host kernel needs to *accept*
-  # packets destined to a non-local IP. By default `route_localnet=0` on
-  # bridge interfaces blocks this — even though we share host netns, the
-  # sysctl can be ro from inside the container, so try and warn-only.
-  # If this warns, run on the host:
-  #   sudo sysctl -w net.ipv4.conf.all.route_localnet=1
-  #   sudo sysctl -w net.ipv4.conf.${BRIDGE}.route_localnet=1
-  for path in \
-    "/proc/sys/net/ipv4/conf/all/route_localnet" \
-    "/proc/sys/net/ipv4/conf/${BRIDGE}/route_localnet" \
-    "/proc/sys/net/ipv4/conf/all/accept_local" \
-    "/proc/sys/net/ipv4/conf/${BRIDGE}/accept_local"; do
-    [ -w "$path" ] && echo 1 > "$path" 2>/dev/null
-  done
-  if [ "$(cat /proc/sys/net/ipv4/conf/${BRIDGE}/route_localnet 2>/dev/null)" != "1" ]; then
-    log "  WARN: route_localnet=0 on ${BRIDGE}; run on host:"
-    log "    sudo sysctl -w net.ipv4.conf.${BRIDGE}.route_localnet=1"
-    log "    sudo sysctl -w net.ipv4.conf.all.route_localnet=1"
+    log "iptables rules installed:"
+    iptables -t nat -S PREROUTING | grep -F "${BRIDGE}" | sed 's/^/    /'
   fi
-
-  log "iptables rules installed:"
-  iptables -t nat -S PREROUTING | grep -F "${BRIDGE}" | sed 's/^/    /'
 fi
 
 # Make sure config dir is writable by 8181 (volume might be fresh).

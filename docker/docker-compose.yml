@@ -105,6 +105,14 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    # Each intercepted flow holds 2+ sockets (client + server, sometimes
+    # plus TLS upstreams). Default container nofile=1024 runs out fast under
+    # browser traffic; we saw Errno 24 ("too many open files") on the
+    # accept(2) path after ~1000 attempted connections.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     environment:
       MITM_WEB_PASSWORD: ${MITM_WEB_PASSWORD:-headless-mitm}
       # Docker-compose project name + network -> bridge interface name.
