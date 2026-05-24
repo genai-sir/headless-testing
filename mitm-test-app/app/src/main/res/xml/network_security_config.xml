@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default config but explicit. base-config has cleartextTrafficPermitted
+  for the rare case we want to test plaintext too, and trusts BOTH the
+  system trust store (where install-mitm-ca.sh drops the mitmproxy CA via
+  the Magisk module) AND user-added CAs (so a sideloaded test CA would
+  also work without re-running the Magisk module).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

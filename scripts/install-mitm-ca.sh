@@ -56,11 +56,63 @@ chmod 644 "$MODDIR/system/etc/security/cacerts/${HASH}.0"
 cat > "$MODDIR/module.prop" <<EOF
 id=${MODULE_ID}
 name=mitmproxy CA
-version=1.0
-versionCode=1
+version=2.0
+versionCode=2
 author=headless-android
-description=Adds the mitmproxy CA to the system trust store so HTTPS traffic from redroid apps can be decrypted by the local proxy.
+description=Installs the mitmproxy CA as a system trust anchor. On Android 14+, also bind-mounts the cert into the APEX Conscrypt cacerts dir which is what HttpsURLConnection / OkHttp actually consult.
 EOF
+
+# Android 14 stopped consulting /system/etc/security/cacerts/ for TLS chain
+# validation. Conscrypt is now an APEX module and ships its own readonly
+# cacerts at /apex/com.android.conscrypt/cacerts/. Even with /system widened
+# by another Magisk module, apps using HttpsURLConnection / OkHttp will
+# reject our self-signed CA with `Trust anchor for certification path not
+# found` because they look at the APEX dir, not /system.
+#
+# The standard workaround (HTTP Toolkit, MagiskTrustUserCerts-Updated):
+# at post-fs-data we copy the entire APEX cacerts dir into a tmpfs, add
+# our CA there, then bind-mount the tmpfs back over /apex/.../cacerts.
+# The Conscrypt loader doesn't care that the inode changed; it just
+# rescans on first SSLContext init in each process.
+#
+# Magisk's `post-fs-data.sh` runs after /data is mounted but before
+# Zygote spawns app processes, so the bind-mount is in place before any
+# app reads the cert store.
+cat > "$MODDIR/post-fs-data.sh" <<'POST_FS_DATA'
+#!/system/bin/sh
+# headless-android: install mitmproxy CA into the APEX Conscrypt store on
+# Android 14+. No-op on older Android (the APEX path doesn't exist there).
+
+MODDIR=${0%/*}
+APEX_CERTS=/apex/com.android.conscrypt/cacerts
+
+[ -d "$APEX_CERTS" ] || exit 0
+
+# Build a private tmpfs view of the cacerts dir with our cert added.
+TMPDIR=/data/local/tmp/mitm-cacerts
+rm -rf "$TMPDIR"
+mkdir -p "$TMPDIR"
+
+# Copy every existing APEX cert (so we don't break TLS for the public CAs).
+cp -a "$APEX_CERTS/." "$TMPDIR/" 2>/dev/null
+
+# Add our cert. The Magisk module ships it at system/etc/security/cacerts/<hash>.0.
+for f in "$MODDIR"/system/etc/security/cacerts/*.0; do
+  [ -f "$f" ] || continue
+  cp "$f" "$TMPDIR/$(basename "$f")"
+done
+
+# Match the APEX dir's perms exactly so the loader is happy.
+chown -R 0:0 "$TMPDIR"
+chmod -R 0644 "$TMPDIR"/*
+chmod 0755 "$TMPDIR"
+restorecon -RFD "$TMPDIR" 2>/dev/null || true
+
+# Bind-mount over the readonly APEX dir. The mount lives only while this
+# boot is alive; another boot rebuilds it via this same script.
+mount --bind "$TMPDIR" "$APEX_CERTS"
+POST_FS_DATA
+chmod 755 "$MODDIR/post-fs-data.sh"
 
 # Magisk module installer expects a zip with a META-INF/com/google/android
 # update-binary, OR you can install directly by pushing the directory tree to
