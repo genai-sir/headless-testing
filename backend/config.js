@@ -32,4 +32,14 @@ export const config = {
     process.env.EMULATOR_AUTH_TOKEN_PATH ||
     join(homedir(), ".emulator_console_auth_token"),
   uploadsDir: join(process.cwd(), "uploads"),
+  // MITM (traffic monitoring) settings.
+  // mitm.apiUrl is the URL of mitmweb as seen *from the backend container*.
+  // mitm.proxyHost/Port is the proxy as seen *from redroid* (set on the
+  // device's global http_proxy).
+  mitm: {
+    // Where mitmweb listens. mitmproxy joins redroid's netns so this address
+    // resolves to the redroid service in the docker network.
+    apiUrl: process.env.MITM_API_URL || "http://redroid:8081",
+    webPassword: process.env.MITM_WEB_PASSWORD || "headless-mitm",
+  },
 };

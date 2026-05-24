@@ -308,6 +308,100 @@ scopeApply.addEventListener("click", async () => {
   }, 2000);
 });
 
+// ---------- proxy / traffic ----------
+const proxyClear = $("#proxy-clear");
+const proxyOpen = $("#proxy-open");
+const proxySummary = $("#proxy-summary");
+const flowList = $("#flow-list");
+const mitmwebFrame = $("#mitmweb");
+const mitmwebWrap = $("#mitmweb-wrap");
+
+let lastProxyStatus = null;
+let mitmwebUrlCache = null;
+
+function mitmwebUrl(token) {
+  // Same host as the dashboard, port 8081. Cached so we don't recompute.
+  if (mitmwebUrlCache) return mitmwebUrlCache;
+  const loc = window.location;
+  const t = token ? `?token=${encodeURIComponent(token)}` : "";
+  mitmwebUrlCache = `${loc.protocol}//${loc.hostname}:8081/${t}`;
+  return mitmwebUrlCache;
+}
+
+function setProxyPill(s) {
+  if (!s.mitmReachable) {
+    proxySummary.textContent = "tap unreachable";
+    proxySummary.className = "dim bad";
+    return;
+  }
+  if (s.legacyDeviceProxy) {
+    proxySummary.textContent = `capturing · legacy http_proxy=${s.legacyDeviceProxy} (clear it)`;
+    proxySummary.className = "dim warn";
+  } else {
+    proxySummary.textContent = "capturing";
+    proxySummary.className = "dim ok";
+  }
+}
+
+async function refreshProxyStatus() {
+  try {
+    const s = await api("/api/proxy/status");
+    lastProxyStatus = s;
+    setProxyPill(s);
+    if (s.webToken && !mitmwebUrlCache) mitmwebUrl(s.webToken);
+  } catch (e) {
+    proxySummary.textContent = "error";
+    proxySummary.className = "dim bad";
+  }
+}
+
+function renderFlows(flows) {
+  if (!flows.length) {
+    flowList.innerHTML = '<li class="empty">no traffic captured</li>';
+    return;
+  }
+  flowList.innerHTML = flows
+    .map((f) => {
+      const status = f.status ? `<span class="status s${Math.floor(f.status / 100)}xx">${f.status}</span>` : '<span class="status pending">…</span>';
+      const method = `<span class="method m-${(f.method || "?").toLowerCase()}">${f.method || "?"}</span>`;
+      const url = `${f.scheme || "http"}://${f.host || "?"}${f.path || ""}`;
+      // Truncate display path; full URL on title.
+      const display = url.length > 100 ? url.slice(0, 97) + "…" : url;
+      return `<li title="${url.replace(/"/g, "&quot;")}">${method}${status}<span class="url">${display}</span></li>`;
+    })
+    .join("");
+}
+
+async function refreshFlows() {
+  // Only fetch if mitm is reachable, to avoid noisy error spam.
+  if (!lastProxyStatus?.mitmReachable) return;
+  try {
+    const r = await api("/api/proxy/flows?limit=50");
+    renderFlows(r.flows || []);
+  } catch {
+    // surface only via the proxy pill on the next status tick
+  }
+}
+
+proxyClear.addEventListener("click", async () => {
+  await api("/api/proxy/flows", { method: "DELETE" });
+  renderFlows([]);
+});
+
+proxyOpen.addEventListener("click", () => {
+  const t = lastProxyStatus?.webToken;
+  window.open(mitmwebUrl(t), "_blank");
+});
+
+// Lazy-load the iframe only when the user expands the mitmweb section.
+// Avoids a heavyweight load on every dashboard open.
+mitmwebWrap.addEventListener("toggle", () => {
+  if (mitmwebWrap.open && mitmwebFrame.src === "about:blank") {
+    const t = lastProxyStatus?.webToken;
+    mitmwebFrame.src = mitmwebUrl(t);
+  }
+});
+
 // ---------- boot ----------
 loadConfig().then(refreshDevice);
 setInterval(refreshDevice, 5000);
@@ -315,3 +409,7 @@ refreshStealth();
 setInterval(refreshStealth, 8000);
 refreshScope();
 scopeRefreshTimer = setInterval(refreshScope, 10000);
+refreshProxyStatus();
+setInterval(refreshProxyStatus, 6000);
+refreshFlows();
+setInterval(refreshFlows, 2000);
